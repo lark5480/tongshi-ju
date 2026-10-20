@@ -56,10 +56,10 @@ Next.js 14 (App Router) · React 18 · TypeScript 5.5 · Tailwind 3 · SSE
 ## 3. 目录速查
 
 ```
-app/         页面与 API 路由（App Router）
+app/         页面与 API 路由（App Router）：/ · /daily · /domains · /pk · /duel · /map · /wrong · /history
 components/  ui / domain / quiz / result
-hooks/       useCountdown · useRoomStream · useDailyChallenge
-lib/engine/  纯函数：prng · date · answer · scoring · daily · repetition · rank · ghost · blindbox
+hooks/       useCountdown · useRoomStream · useDailyChallenge · usePkChallenge
+lib/engine/  纯函数：prng · date · answer · scoring · daily · repetition · rank · ghost · blindbox · pk
 lib/store/   房间状态机 · 常量 · 入参校验
 lib/ai/      provider · prompt · 10 步校验链 · 去重
 lib/content/ fingerprint · loader · server-bank
@@ -102,6 +102,7 @@ npm run format:check   # prettier --check .
 | 测试约定 / 重置钩子 | [`docs/TESTING.md`](docs/TESTING.md) |
 | 视觉 / token / 组件 / 文案 | [`docs/design/ui-system.md`](docs/design/ui-system.md) |
 | 产品需求 / 玩法规则 / 验收标准 | [`docs/PRD.md`](docs/PRD.md) |
+| 部署 / 联机隧道 / 双轨形态 | [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) |
 | 团队角色 / 流水线 / 交付规范 | [`agents/TEAM.md`](agents/TEAM.md) |
 
 ---
