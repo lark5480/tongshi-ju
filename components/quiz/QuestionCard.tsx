@@ -3,7 +3,8 @@
 import { Check, X } from "lucide-react";
 
 import type { Question } from "@/types";
-import { domainColor, domainEmoji, domainName } from "@/content/domains";
+import { domainColor, domainName } from "@/content/domains";
+import { domainIcon } from "@/components/domain/DomainCard";
 import { Button } from "@/components/ui/Button";
 
 interface QuestionCardProps {
@@ -40,6 +41,7 @@ export function QuestionCard({
   onConfirm,
 }: QuestionCardProps) {
   const color = domainColor(question.domain);
+  const DomainGlyph = domainIcon(question.domain);
   const pickedList = Array.isArray(picked) ? picked : picked ? [picked] : [];
   const answerList = Array.isArray(question.answer) ? question.answer : [question.answer];
   const ratio = limit > 0 ? Math.max(0, Math.min(1, remaining / limit)) : 0;
@@ -64,7 +66,9 @@ export function QuestionCard({
           className="inline-flex items-center gap-1.5 rounded-pill px-2.5 py-1 text-xs font-medium"
           style={{ background: `${color}1f`, color, boxShadow: `inset 0 0 0 1px ${color}44` }}
         >
-          <span aria-hidden>{domainEmoji(question.domain)}</span>
+          <span aria-hidden>
+            <DomainGlyph size={13} strokeWidth={2.2} />
+          </span>
           {domainName(question.domain)}
           <span className="opacity-70">· {question.topic}</span>
         </span>

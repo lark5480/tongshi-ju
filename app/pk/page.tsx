@@ -8,8 +8,9 @@ import { usePkChallenge } from "@/hooks/usePkChallenge";
 import { QuestionCard } from "@/components/quiz/QuestionCard";
 import { KnowledgeChain, type ChainSlot } from "@/components/quiz/KnowledgeChain";
 import { ShareCard } from "@/components/result/ShareCard";
-import { Button } from "@/components/ui/Button";
+import { Button, buttonClass } from "@/components/ui/Button";
 import { DOMAINS } from "@/content/domains";
+import { domainIcon } from "@/components/domain/DomainCard";
 import { getProfile } from "@/lib/storage";
 import { isValidPkCode, normalizePkCode } from "@/lib/engine/pk";
 
@@ -89,7 +90,6 @@ export default function PkPage() {
               </div>
               <Button
                 variant="secondary"
-                size="sm"
                 onClick={() => pk.setCode(pk.suggested)}
                 disabled={pk.code === pk.suggested}
               >
@@ -132,13 +132,15 @@ export default function PkPage() {
           <div className="flex flex-wrap justify-center gap-1.5">
             {(pk.spec?.domains ?? []).map((d) => {
               const meta = DOMAINS.find((x) => x.id === d);
+              const Glyph = domainIcon(d);
               return (
                 <span
                   key={d}
-                  className="rounded-pill px-2.5 py-1 text-xs"
+                  className="inline-flex items-center gap-1 rounded-pill px-2.5 py-1 text-xs"
                   style={{ background: `${meta?.color ?? "#8b93a1"}22`, color: meta?.color }}
                 >
-                  {meta?.emoji} {meta?.name}
+                  <Glyph size={12} strokeWidth={2.2} aria-hidden />
+                  {meta?.name}
                 </span>
               );
             })}
@@ -172,10 +174,8 @@ export default function PkPage() {
             <RotateCcw size={15} aria-hidden />
             换个码再来
           </Button>
-          <Link href="/duel" className="flex-1">
-            <Button block variant="ghost">
-              实时对战
-            </Button>
+          <Link href="/duel" className={buttonClass("ghost", "md", true)}>
+            实时对战
           </Link>
         </div>
       </div>

@@ -14,7 +14,7 @@ import {
   Users,
 } from "lucide-react";
 
-import { Button } from "@/components/ui/Button";
+import { buttonClass } from "@/components/ui/Button";
 import { DOMAINS } from "@/content/domains";
 import { getProfile, getRankSnapshot, getStreak, isPersistent } from "@/lib/storage";
 import { dayKey } from "@/lib/engine/date";
@@ -101,15 +101,16 @@ export default function HomePage() {
           </div>
         )}
 
-        <Link href="/daily">
-          <Button block size="lg">
-            <Sparkles size={16} aria-hidden />
-            开始今日挑战
-          </Button>
+        <Link href="/daily" className={buttonClass("primary", "lg", true)}>
+          <Sparkles size={16} aria-hidden />
+          开始今日挑战
         </Link>
 
         {domains.length === 0 && (
-          <Link href="/domains" className="block text-center text-xs text-accent">
+          <Link
+            href="/domains"
+            className="flex min-h-[44px] items-center justify-center text-center text-xs text-accent"
+          >
             先选三个本命领域 →
           </Link>
         )}

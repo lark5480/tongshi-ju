@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [main, dev]
+    branches: [master, main, dev]
   pull_request:
-    branches: [main, dev]
+    branches: [master, main, dev]
 
 # 同一分支上的新提交自动取消旧任务，节省 CI 时长
 concurrency:

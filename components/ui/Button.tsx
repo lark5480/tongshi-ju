@@ -35,6 +35,19 @@ const SIZES: Record<Size, string> = {
   lg: "min-h-[48px] px-5 py-3 text-base",
 };
 
+/**
+ * 按钮的视觉类。
+ *
+ * 单独导出是为了让 `<Link>` 能**直接**长得像按钮 ——
+ * `<a>` 里嵌 `<button>` 是非法 HTML（两个可交互元素嵌套），
+ * 而且外层 `<a>` 会退化成行内盒，命中区只剩 20px 高。
+ */
+export function buttonClass(variant: Variant = "primary", size: Size = "md", block = false) {
+  return `inline-flex cursor-pointer items-center justify-center gap-1.5 rounded-md font-semibold
+        transition-all duration-fast active:scale-[.98] disabled:cursor-not-allowed disabled:active:scale-100
+        ${VARIANTS[variant]} ${SIZES[size]} ${block ? "w-full" : ""}`;
+}
+
 export function Button({
   variant = "primary",
   size = "md",
@@ -44,12 +57,7 @@ export function Button({
   ...rest
 }: ButtonProps) {
   return (
-    <button
-      className={`inline-flex cursor-pointer items-center justify-center gap-1.5 rounded-md font-semibold
-        transition-all duration-fast active:scale-[.98] disabled:cursor-not-allowed disabled:active:scale-100
-        ${VARIANTS[variant]} ${SIZES[size]} ${block ? "w-full" : ""} ${className}`}
-      {...rest}
-    >
+    <button className={`${buttonClass(variant, size, block)} ${className}`} {...rest}>
       {children}
     </button>
   );

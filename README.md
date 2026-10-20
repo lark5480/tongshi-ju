@@ -44,7 +44,7 @@ npm run dev
 
 ---
 
-## 三个亮点
+## 四个亮点
 
 ### 🌗 影子对手 —— 和昨天的自己同场竞速
 
@@ -125,7 +125,7 @@ npm run format:check     # Prettier
 
 | 文档 | 给谁看 | 内容 |
 |---|---|---|
-| [`docs/PRD.md`](docs/PRD.md) | 产品 | 定位、12 域体系、三个亮点玩法的完整规则与验收标准、路线图 |
+| [`docs/PRD.md`](docs/PRD.md) | 产品 | 定位、12 域体系、四个亮点玩法的完整规则与验收标准、路线图 |
 | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | 开发 | 引擎、房间状态机、SSE、部署形态 |
 | [`docs/GAME-RULES.md`](docs/GAME-RULES.md) | 开发 | 计分、连击、星级、段位、影子、间隔重复的全部公式与边界 |
 | [`docs/API.md`](docs/API.md) | 开发 | 全部路由的入参、出参、错误码、SSE 事件 |

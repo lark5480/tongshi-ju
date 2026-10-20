@@ -9,8 +9,9 @@ import { QuestionCard } from "@/components/quiz/QuestionCard";
 import { KnowledgeChain, type ChainSlot } from "@/components/quiz/KnowledgeChain";
 import { GhostBar } from "@/components/quiz/GhostBar";
 import { ShareCard } from "@/components/result/ShareCard";
-import { Button } from "@/components/ui/Button";
+import { Button, buttonClass } from "@/components/ui/Button";
 import { DOMAINS } from "@/content/domains";
+import { domainIcon } from "@/components/domain/DomainCard";
 import { getProfile, getRankSnapshot, getStreak } from "@/lib/storage";
 import { ghostSourceLabel, ghostVerdictText } from "@/lib/engine/ghost";
 import { dailyModeLabel } from "@/lib/engine/blindbox";
@@ -56,8 +57,8 @@ export default function DailyPage() {
       <div className="panel space-y-3 p-6 text-center">
         <p className="text-muted">{c.error}</p>
         <div className="flex justify-center gap-2">
-          <Link href="/domains">
-            <Button variant="secondary">换个领域</Button>
+          <Link href="/domains" className={buttonClass("secondary", "md", false)}>
+            换个领域
           </Link>
           <Button onClick={() => window.location.reload()}>重试</Button>
         </div>
@@ -101,16 +102,18 @@ export default function DailyPage() {
           <div className="flex flex-wrap justify-center gap-1.5">
             {c.domains.map((d) => {
               const meta = DOMAINS.find((x) => x.id === d);
+              const Glyph = domainIcon(d);
               return (
                 <span
                   key={d}
-                  className="rounded-pill px-2.5 py-1 text-xs"
+                  className="inline-flex items-center gap-1 rounded-pill px-2.5 py-1 text-xs"
                   style={{
                     background: `${meta?.color ?? "#8b93a1"}22`,
                     color: meta?.color ?? "#8b93a1",
                   }}
                 >
-                  {meta?.emoji} {meta?.name}
+                  <Glyph size={12} strokeWidth={2.2} aria-hidden />
+                  {meta?.name}
                 </span>
               );
             })}
@@ -189,17 +192,13 @@ export default function DailyPage() {
         </div>
 
         <div className="flex gap-2">
-          <Link href="/duel" className="flex-1">
-            <Button block variant="secondary">
-              <Swords size={16} aria-hidden />
-              找朋友抢答
-            </Button>
+          <Link href="/duel" className={buttonClass("secondary", "md", true)}>
+            <Swords size={16} aria-hidden />
+            找朋友抢答
           </Link>
-          <Link href="/map" className="flex-1">
-            <Button block variant="secondary">
-              <Orbit size={16} aria-hidden />
-              看星图
-            </Button>
+          <Link href="/map" className={buttonClass("secondary", "md", true)}>
+            <Orbit size={16} aria-hidden />
+            看星图
           </Link>
         </div>
 

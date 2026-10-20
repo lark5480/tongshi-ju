@@ -6,7 +6,7 @@ import { Calendar, Check, GraduationCap, NotebookPen, Target, Timer } from "luci
 
 import { domainColor, domainName } from "@/content/domains";
 import { domainIcon } from "@/components/domain/DomainCard";
-import { Button } from "@/components/ui/Button";
+import { Button, buttonClass } from "@/components/ui/Button";
 import { getWrongEntries } from "@/lib/storage";
 import { GRADUATE_STREAK, masteryRatio } from "@/lib/engine/repetition";
 import type { WrongEntry } from "@/types";
@@ -75,11 +75,9 @@ export default function WrongPage() {
         <p className="mx-auto max-w-sm text-sm text-muted">
           答错的题会自动进来，间隔几天再来找你一次。连续答对 {GRADUATE_STREAK} 次就毕业离场。
         </p>
-        <Link href="/daily" className="inline-block">
-          <Button>
-            <Target size={16} aria-hidden />
-            去答一局
-          </Button>
+        <Link href="/daily" className={buttonClass("primary", "md", false)}>
+          <Target size={16} aria-hidden />
+          去答一局
         </Link>
       </div>
     );
