@@ -16,6 +16,8 @@ import type {
   Profile,
   WrongEntry,
 } from "@/types";
+import type { GhostRecord } from "@/lib/engine/ghost";
+import { computeRank, countTopicsTouched, type RankSnapshot } from "@/lib/engine/rank";
 
 const PREFIX = "tongshi-ju.";
 
@@ -100,6 +102,7 @@ const DEFAULT_PROFILE: Profile = {
   emoji: "🧠",
   domains: [],
   usedReroll: false,
+  blindbox: false,
 };
 
 export function getProfile(): Profile {
@@ -189,6 +192,97 @@ export function getWrongEntries(): WrongEntry[] {
 
 export function saveWrongEntries(entries: WrongEntry[]): void {
   writeJson("wrong", entries);
+}
+
+// ---------------------------------------------------------------- 生涯累计
+
+/**
+ * 生涯累计统计 —— **不被历史窗口截断**。
+ *
+ * `getHistory()` 只保留最近 30 场（给"最近战绩"页面看），
+ * 但段位需要的是**生涯**数据，所以单独存一份只增不减的计数。
+ */
+export interface LifetimeStats {
+  /** 生涯答对题数。 */
+  totalCorrect: number;
+  /** 生涯完成局数。 */
+  totalPlayed: number;
+  /** 生涯累计星级。 */
+  totalStars: number;
+  /** 生涯最高连击。 */
+  bestCombo: number;
+}
+
+const DEFAULT_LIFETIME: LifetimeStats = {
+  totalCorrect: 0,
+  totalPlayed: 0,
+  totalStars: 0,
+  bestCombo: 0,
+};
+
+export function getLifetimeStats(): LifetimeStats {
+  return { ...DEFAULT_LIFETIME, ...readJson<Partial<LifetimeStats>>("lifetime", {}) };
+}
+
+/** 累加一次对局的成绩。 */
+export function bumpLifetimeStats(delta: {
+  correct: number;
+  stars: number;
+  maxCombo: number;
+}): LifetimeStats {
+  const prev = getLifetimeStats();
+  const next: LifetimeStats = {
+    totalCorrect: prev.totalCorrect + Math.max(0, delta.correct),
+    totalPlayed: prev.totalPlayed + 1,
+    totalStars: prev.totalStars + Math.max(0, delta.stars),
+    bestCombo: Math.max(prev.bestCombo, delta.maxCombo),
+  };
+  writeJson("lifetime", next);
+  return next;
+}
+
+/**
+ * 当前段位。
+ *
+ * 组装 `RankInput` 并调用纯函数 `computeRank`。
+ * 数据全部来自本地：生涯累计 + 熟练度表 + 最长连胜。
+ */
+export function getRankSnapshot(): RankSnapshot {
+  const life = getLifetimeStats();
+  const mastery = getMastery();
+  const streak = getStreak();
+  return computeRank({
+    totalCorrect: life.totalCorrect,
+    totalPlayed: life.totalPlayed,
+    totalStars: life.totalStars,
+    topicsTouched: countTopicsTouched(mastery),
+    bestCombo: life.bestCombo,
+    bestStreak: streak.best,
+  });
+}
+
+// ---------------------------------------------------------------- 影子对手
+
+/**
+ * 影子记录表 —— `领域集合键 -> 影子`。
+ *
+ * 影子对手是**纯本地**的对手：不需要服务端、不需要账号，
+ * 对手就是"过去的自己"（见 `lib/engine/ghost.ts`）。
+ */
+export function getGhosts(): Record<string, GhostRecord> {
+  return readJson<Record<string, GhostRecord>>("ghosts", {});
+}
+
+/** 取某组领域下的影子；没有则返回 null。 */
+export function getGhost(key: string): GhostRecord | null {
+  return getGhosts()[key] ?? null;
+}
+
+/** 写入（或覆盖）某组领域下的影子。 */
+export function saveGhost(record: GhostRecord): void {
+  const all = getGhosts();
+  all[record.key] = record;
+  writeJson("ghosts", all);
 }
 
 // ---------------------------------------------------------------- 历史

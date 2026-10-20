@@ -241,10 +241,17 @@ export type RoomEvent =
 export interface Profile {
   name: string;
   emoji: string;
-  /** 选定的领域（1-3 个）。 */
+  /**
+   * 选定的领域（1-3 个）。
+   *
+   * 在「盲盒轮转」模式下只有第 1 个是**本命**，其余由日期种子每日轮换
+   * （见 `lib/engine/blindbox.ts`）。
+   */
   domains: DomainId[];
   /** 是否已用过「随缘开局」的免费重抽。 */
   usedReroll: boolean;
+  /** 是否开启「盲盒轮转」：1 个本命 + 2 个每日盲盒。 */
+  blindbox: boolean;
 }
 
 /** `(domain, topic) -> 熟练度`。 */
@@ -291,4 +298,6 @@ export interface DailySession {
   correct?: number;
   stars?: number;
   maxCombo?: number;
+  /** 本局使用的领域模式（native / blindbox / random）。 */
+  mode?: "native" | "blindbox" | "random";
 }

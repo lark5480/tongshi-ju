@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 
 import "./globals.css";
 import { NavBar } from "@/components/ui/NavBar";
+import { Aurora } from "@/components/ui/Aurora";
 
 export const metadata: Metadata = {
   title: "通识局 · 每天三域，各显所长",
@@ -10,7 +11,7 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
-  themeColor: "#0f1115",
+  themeColor: "#080A11",
   width: "device-width",
   initialScale: 1,
   maximumScale: 1,
@@ -20,6 +21,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="zh-CN">
       <body className="min-h-full">
+        {/* 星云背景注入：把当前领域的主题色写进 CSS 变量 */}
+        <Aurora />
         <NavBar />
         <main className="mx-auto w-full max-w-3xl px-4 pb-24 pt-4">{children}</main>
       </body>

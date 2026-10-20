@@ -25,7 +25,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { DailySession, DomainId, Question } from "@/types";
 import { DOMAINS } from "@/content/domains";
 import { dayKey } from "@/lib/engine/date";
-import { buildDailySet, pickRandomDomains } from "@/lib/engine/daily";
+import { buildDailySet } from "@/lib/engine/daily";
 import { isCorrect } from "@/lib/engine/answer";
 import {
   comboMultiplier,
@@ -35,15 +35,26 @@ import {
   starRating,
 } from "@/lib/engine/scoring";
 import { createWrongEntry, onCorrect, onWrong } from "@/lib/engine/repetition";
+import {
+  compareWithGhost,
+  ghostKey,
+  updateGhost,
+  type GhostRecord,
+  type GhostVerdict,
+} from "@/lib/engine/ghost";
+import { resolveDailyDomains, type DailyMode } from "@/lib/engine/blindbox";
 import { loadQuestionPool } from "@/lib/content/loader";
 import {
+  bumpLifetimeStats,
   bumpStreak,
   getDailySession,
+  getGhost,
   getProfile,
   getWrongEntries,
   pushHistory,
   recordMastery,
   saveDailySession,
+  saveGhost,
   saveProfile,
   saveWrongEntries,
 } from "@/lib/storage";
@@ -84,6 +95,12 @@ export interface DailyChallengeState {
   stars: number;
   /** 当前题剩余毫秒。 */
   remaining: number;
+  /** 本局使用的领域模式。 */
+  mode: DailyMode;
+  /** 本局领域集合对应的「过去的自己」。 */
+  ghost: GhostRecord | null;
+  /** 结算后与影子的对比结论；未结算为 null。 */
+  verdict: GhostVerdict | null;
   start: () => void;
   toggleOption: (option: string) => void;
   submit: () => void;
@@ -108,6 +125,9 @@ export function useDailyChallenge(): DailyChallengeState {
   const [finished, setFinished] = useState(false);
   const [stars, setStars] = useState(0);
   const [remaining, setRemaining] = useState(LIMIT_MS[1]);
+  const [mode, setMode] = useState<DailyMode>("native");
+  const [ghost, setGhost] = useState<GhostRecord | null>(null);
+  const [verdict, setVerdict] = useState<GhostVerdict | null>(null);
 
   /** 本题开始时刻（本地，仅用于显示与速度分）。 */
   const startedAtRef = useRef<number>(0);
@@ -129,35 +149,61 @@ export function useDailyChallenge(): DailyChallengeState {
     (async () => {
       try {
         const profile = getProfile();
-        let useDomains = profile.domains;
+        const enabled = DOMAINS.filter((d) => d.enabled).map((d) => d.id);
 
-        if (useDomains.length === 0) {
-          // 「不选也行」：按当日种子确定性地随机 3 个已上线领域
-          const enabled = DOMAINS.filter((d) => d.enabled).map((d) => d.id);
-          useDomains = pickRandomDomains(date, enabled, 3);
-          saveProfile({ domains: useDomains });
-        }
+        // 三种领域模式（见 lib/engine/blindbox.ts）：
+        // - native   本命模式：玩家选定的领域
+        // - blindbox 盲盒轮转：1 个本命 + 2 个每日盲盒（每日换新）
+        // - random   随缘开局：完全按日期种子取 3 个
+        //
+        // ⚠️ random 模式**不写回档案**：写回会让第二天起不再轮换，
+        // 「随缘」会退化成固定领域（那正是本模块修掉的一个老 bug）。
+        const dailyMode: DailyMode = profile.blindbox
+          ? "blindbox"
+          : profile.domains.length > 0
+            ? "native"
+            : "random";
+
+        // 当日题集若已锁定，领域以 session 为准 —— 改领域不影响当天已抽的题。
+        const existing = getDailySession(date);
+        const locked = existing && existing.questionIds.length > 0 ? existing : null;
+
+        const useDomains: DomainId[] = locked
+          ? locked.domains
+          : resolveDailyDomains({
+              dateKey: date,
+              native: profile.domains,
+              blindbox: profile.blindbox,
+              candidates: enabled,
+            });
 
         if (cancelled) return;
+        setMode(locked?.mode ?? dailyMode);
         setDomains(useDomains);
+        setGhost(getGhost(ghostKey(useDomains)));
 
-        // 当日题集已锁定 → 直接复用
-        const existing = getDailySession(date);
-        if (existing && existing.questionIds.length > 0) {
+        if (locked) {
           const pool = await loadQuestionPool(useDomains);
           const byId = new Map<string, Question>();
           for (const list of Object.values(pool)) {
             for (const q of list ?? []) byId.set(q.id, q);
           }
-          const qs = existing.questionIds.map((id) => byId.get(id)).filter(Boolean) as Question[];
+          const qs = locked.questionIds.map((id) => byId.get(id)).filter(Boolean) as Question[];
           if (qs.length > 0) {
             setQuestions(qs);
-            if (existing.done) {
+            if (locked.done) {
               setFinished(true);
-              setScore(existing.score ?? 0);
-              setStars(existing.stars ?? 0);
-              setMaxCombo(existing.maxCombo ?? 0);
+              setScore(locked.score ?? 0);
+              setStars(locked.stars ?? 0);
+              setMaxCombo(locked.maxCombo ?? 0);
               setRecords([]);
+              // 已完成的一局：直接给出与影子的对比结论
+              setVerdict(
+                compareWithGhost(
+                  locked.score ?? 0,
+                  getGhost(ghostKey(useDomains))
+                )
+              );
             } else {
               setIndex(0);
             }
@@ -181,6 +227,7 @@ export function useDailyChallenge(): DailyChallengeState {
           domains: useDomains,
           questionIds: qs.map((q) => q.id),
           done: false,
+          mode: dailyMode,
         };
         saveDailySession(session);
         setLoading(false);
@@ -302,6 +349,26 @@ export function useDailyChallenge(): DailyChallengeState {
 
     const session = getDailySession(date);
     const correctCount = records.filter((r) => r.correct).length;
+
+    // ---- 影子对手：用本局成绩刷新"过去的自己" ----
+    // 对比的是**本局开始前**的影子：先算结论，再更新影子，否则等于自己跟自己比。
+    const key = ghostKey(domains);
+    const prevGhost = getGhost(key);
+    const totalElapsed = records.reduce((sum, r) => sum + r.elapsed, 0);
+    saveGhost(
+      updateGhost(prevGhost, {
+        key,
+        score: finalScore,
+        correct: correctCount,
+        date,
+        elapsed: totalElapsed,
+      })
+    );
+    setVerdict(compareWithGhost(finalScore, prevGhost));
+
+    // ---- 生涯累计（段位用，不受 30 场历史窗口影响） ----
+    bumpLifetimeStats({ correct: correctCount, stars: rating, maxCombo });
+
     saveDailySession({
       date,
       domains,
@@ -311,6 +378,7 @@ export function useDailyChallenge(): DailyChallengeState {
       correct: correctCount,
       stars: rating,
       maxCombo,
+      mode,
     });
     bumpStreak(date);
     pushHistory({
@@ -324,7 +392,7 @@ export function useDailyChallenge(): DailyChallengeState {
       mode: "daily",
     });
     void session;
-  }, [submitted, index, questions, score, records, date, domains, maxCombo]);
+  }, [submitted, index, questions, score, records, date, domains, maxCombo, mode]);
 
   /** 多选题：切换选项暂存；单选/判断题：直接提交。 */
   const toggleOption = useCallback(
@@ -373,6 +441,9 @@ export function useDailyChallenge(): DailyChallengeState {
     finished,
     stars,
     remaining,
+    mode,
+    ghost,
+    verdict,
     start: reset,
     toggleOption,
     submit,

@@ -2,22 +2,102 @@
 @tailwind components;
 @tailwind utilities;
 
+/**
+ * 《通识局》全局样式 —— 「星轨 / Orbit」
+ *
+ * 三层背景：深空底色 + 领域星云 + 星场。
+ * 星云颜色由 `--nebula-1/2/3` 注入（客户端组件从档案读取选中领域的色），
+ * 因此「选了什么领域」会直接改变整个页面的氛围。
+ *
+ * 设计规范见 docs/design/ui-system.md。
+ */
+
 :root {
   color-scheme: dark;
+
   --font-sans:
     ui-sans-serif, system-ui, "PingFang SC", "Microsoft YaHei", "Noto Sans SC", sans-serif;
+
+  /* 星云：默认单色微光，选域后由 <Aurora /> 覆盖 */
+  --nebula-1: rgba(255, 106, 43, 0.22);
+  --nebula-2: rgba(95, 168, 255, 0.16);
+  --nebula-3: rgba(124, 58, 237, 0.14);
+
+  /* 发光阴影的跟随色（由组件内联注入领域色） */
+  --glow-color: #ff6a2b;
 }
 
-html,
-body {
+html {
   height: 100%;
+  /* 底色画在 html 上，body 保持透明以便伪元素分层 */
+  background-color: #080a11;
 }
 
 body {
-  @apply bg-bg text-[#e8eaed] antialiased;
+  @apply text-fg antialiased;
   font-family: var(--font-sans);
+  height: 100%;
+  position: relative;
+  /* 关键：让 body 成为独立层叠上下文，z-index:-1 的伪元素不会穿透到 html 之下 */
+  isolation: isolate;
   /* 移动端安全区 */
   padding-bottom: env(safe-area-inset-bottom);
+}
+
+/* ---- 星云层：选中领域的主题色 ---- */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(58% 42% at 10% 4%, var(--nebula-1) 0%, transparent 68%),
+    radial-gradient(52% 38% at 92% 12%, var(--nebula-2) 0%, transparent 70%),
+    radial-gradient(72% 48% at 50% 104%, var(--nebula-3) 0%, transparent 72%);
+}
+
+/* ---- 星场层：细密星点，给深色底一点"空间感" ---- */
+body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  opacity: 0.55;
+  background-image:
+    radial-gradient(1.2px 1.2px at 12% 18%, rgba(255, 255, 255, 0.5), transparent 50%),
+    radial-gradient(1px 1px at 68% 12%, rgba(255, 255, 255, 0.38), transparent 50%),
+    radial-gradient(1.4px 1.4px at 42% 72%, rgba(255, 255, 255, 0.3), transparent 50%),
+    radial-gradient(1px 1px at 88% 62%, rgba(255, 255, 255, 0.34), transparent 50%),
+    radial-gradient(1px 1px at 26% 88%, rgba(255, 255, 255, 0.26), transparent 50%);
+  background-size:
+    260px 260px,
+    340px 340px,
+    200px 200px,
+    420px 420px,
+    300px 300px;
+  background-position:
+    0 0,
+    40px 60px,
+    90px 20px,
+    10px 110px,
+    70px 40px;
+}
+
+/**
+ * 降低动效 —— 前庭敏感用户的硬要求。
+ * 统一归零动画与过渡：状态变化仍然发生，只是瞬间完成（不产生位移感）。
+ */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }
 
 /* 数字等宽，避免倒计时跳动导致布局抖动 */
@@ -34,10 +114,10 @@ body {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  @apply bg-border rounded-full;
+  @apply rounded-full bg-surface-3;
 }
 ::-webkit-scrollbar-thumb:hover {
-  @apply bg-muted;
+  @apply bg-border-strong;
 }
 
 /* 隐藏滚动条但保留滚动（横向 chip 行） */
@@ -54,25 +134,29 @@ body {
   @apply outline-none ring-2 ring-accent ring-offset-2 ring-offset-bg;
 }
 
+/* ---------------------------------------------------------------- 组件类 */
+
 /* 选域卡片 */
 .domain-card {
-  @apply relative overflow-hidden rounded-xl border border-border bg-surface p-4
-         transition-all duration-200 cursor-pointer select-none;
+  @apply relative overflow-hidden rounded-lg border border-border bg-surface p-4
+         transition-all duration-base cursor-pointer select-none;
+  min-height: 88px;
 }
-.domain-card:hover {
-  @apply border-accent/60 -translate-y-0.5;
+.domain-card:hover:not(:disabled) {
+  @apply -translate-y-0.5 border-border-strong;
 }
 .domain-card[data-selected="true"] {
-  @apply border-accent bg-accent/10;
+  @apply border-accent;
 }
 
 /* 题目选项 */
 .option-btn {
-  @apply w-full rounded-lg border border-border bg-surface-2 px-4 py-3 text-left
-         transition-all duration-150 cursor-pointer;
+  @apply relative w-full rounded-md border border-border bg-surface-2 px-4 py-3 text-left
+         transition-all duration-fast cursor-pointer;
+  min-height: 52px;
 }
 .option-btn:hover:not(:disabled) {
-  @apply border-accent/70 bg-accent/10;
+  @apply border-border-strong bg-surface-3;
 }
 .option-btn:disabled {
   @apply cursor-default;
@@ -84,12 +168,12 @@ body {
   @apply border-danger bg-danger/15;
 }
 .option-btn[data-state="dimmed"] {
-  @apply opacity-50;
+  @apply opacity-45;
 }
 
 /* 卡片通用 */
 .panel {
-  @apply rounded-xl border border-border bg-surface;
+  @apply rounded-lg border border-border bg-surface shadow-card;
 }
 
 /* 星图 */
@@ -98,4 +182,21 @@ body {
 }
 .star-dot[data-filled="true"] {
   @apply bg-accent;
+}
+
+/* 知识链分段：每个连击一格，颜色取当题领域色 */
+.chain-seg {
+  @apply h-1.5 flex-1 rounded-full bg-surface-3 transition-transform duration-base;
+  transform-origin: left center;
+}
+.chain-seg[data-on="true"] {
+  @apply bg-accent;
+}
+
+/* 可交互卡片的悬浮微抬 */
+.lift {
+  @apply transition-all duration-base;
+}
+.lift:hover {
+  @apply -translate-y-0.5;
 }
