@@ -176,9 +176,12 @@ function snapshotOf(room: RoomStateInternal): RoomSnapshot {
       emoji: p.emoji,
       ready: p.ready,
       connected: p.connected,
-      score: p.score,
-      combo: p.combo,
-      firstCorrect: p.firstCorrect,
+      // 比分/连击/抢先答对次数的**真相**是 room.scores / room.combos / room.firstCorrect。
+      // 这里**从真相派生**，绝不读可能滞后的镜像字段 ——
+      // 否则 players[].score 会永远是 0（历史缺陷）。
+      score: room.scores[p.id] ?? 0,
+      combo: room.combos[p.id] ?? 0,
+      firstCorrect: room.firstCorrect[p.id] ?? 0,
     });
   }
 
@@ -363,6 +366,7 @@ function settleRound(
     points[key] = gain;
     slotScores[key] = (room.scores[p.id] ?? 0) + gain;
     room.scores[p.id] = slotScores[key];
+    p.score = slotScores[key]; // 同步镜像（对外快照以 room.scores 为准）
   }
 
   // 连击结算（规则冲突裁定见文件头注释）
@@ -372,14 +376,19 @@ function settleRound(
       const prev = room.lastWinDomain[p.id] ?? null;
       const combo = nextCombo(room.combos[p.id] ?? 0, true, prev, meta.domain);
       room.combos[p.id] = combo;
+      p.combo = combo; // 同步镜像
       room.lastWinDomain[p.id] = meta.domain;
-      room.firstCorrect[p.id] = (room.firstCorrect[p.id] ?? 0) + 1;
+      const firstCorrect = (room.firstCorrect[p.id] ?? 0) + 1;
+      room.firstCorrect[p.id] = firstCorrect;
+      p.firstCorrect = firstCorrect; // 同步镜像
     } else if (ans && !ans.correct) {
       // 自己答错 → 归零
       room.combos[p.id] = 0;
+      p.combo = 0; // 同步镜像
     } else if (!ans && timedOut) {
       // 自己超时未答 → 归零
       room.combos[p.id] = 0;
+      p.combo = 0; // 同步镜像
     }
     // 未作答且被对手抢先 → 连击保持不变（不奖不罚）
   }
@@ -624,6 +633,9 @@ export function startRoom(code: string, playerId: string): RoomSnapshot {
     room.combos[p.id] = 0;
     room.firstCorrect[p.id] = 0;
     room.lastWinDomain[p.id] = null;
+    p.score = 0; // 同步镜像
+    p.combo = 0;
+    p.firstCorrect = 0;
     p.ready = false;
   }
   room.lastActivity = now;
@@ -712,6 +724,8 @@ export function submitAnswer(params: {
     // 答错：记 0 分，等待对手作答或超时。
     // 连击**立即**归零 —— 这是「自己的失误」，不等回合结算。
     room.combos[params.playerId] = 0;
+    const wrongPlayer = room.players[params.playerId];
+    if (wrongPlayer) wrongPlayer.combo = 0; // 同步镜像
     broadcastState(room);
     return { ok: true, correct: false, winnerSlot: null };
   }
@@ -755,6 +769,9 @@ export function rematch(code: string, playerId: string): RoomSnapshot {
     room.combos[p.id] = 0;
     room.firstCorrect[p.id] = 0;
     room.lastWinDomain[p.id] = null;
+    p.score = 0; // 同步镜像
+    p.combo = 0;
+    p.firstCorrect = 0;
     p.ready = false;
   }
   room.lastActivity = Date.now();

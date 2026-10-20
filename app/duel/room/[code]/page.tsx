@@ -2,13 +2,57 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
+import {
+  Check,
+  CircleDot,
+  Copy,
+  Flame,
+  Medal,
+  RefreshCw,
+  Share2,
+  Target,
+  Timer,
+  Trophy,
+  Users,
+  Zap,
+} from "lucide-react";
 
 import { useRoomStream } from "@/hooks/useRoomStream";
 import { useCountdown } from "@/hooks/useCountdown";
 import { Button } from "@/components/ui/Button";
-import { DOMAINS, domainColor, domainEmoji, domainName } from "@/content/domains";
+import { domainColor, domainName } from "@/content/domains";
+import { domainIcon } from "@/components/domain/DomainCard";
 import { getRoomPlayerId } from "@/lib/storage";
-import type { RoomSnapshot, Slot } from "@/types";
+import type { PublicPlayer, RoomSnapshot, Slot } from "@/types";
+
+/**
+ * 复制到剪贴板 —— 优先用异步剪贴板 API，
+ * 在非安全上下文（http 局域网调试）里降级到 execCommand。
+ */
+async function copyText(text: string): Promise<boolean> {
+  try {
+    if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+  } catch {
+    /* 落到降级方案 */
+  }
+  try {
+    const ta = document.createElement("textarea");
+    ta.value = text;
+    ta.setAttribute("readonly", "");
+    ta.style.position = "fixed";
+    ta.style.top = "-1000px";
+    document.body.appendChild(ta);
+    ta.select();
+    const ok = document.execCommand("copy");
+    document.body.removeChild(ta);
+    return ok;
+  } catch {
+    return false;
+  }
+}
 
 /** 对战房间：大厅准备 → 倒计时 → 抢答 → 结算 → 结束。 */
 export default function DuelRoomPage() {
@@ -21,6 +65,7 @@ export default function DuelRoomPage() {
   const [submitted, setSubmitted] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [copied, setCopied] = useState(false);
 
   const { snapshot, lastEvent, connecting, reconnecting, serverOffset } = useRoomStream(
     code,
@@ -158,8 +203,12 @@ export default function DuelRoomPage() {
 
   if (connecting && !snapshot) {
     return (
-      <div className="flex h-64 items-center justify-center text-muted">
-        <span className="animate-pulse">正在连接房间…</span>
+      <div
+        className="flex h-64 flex-col items-center justify-center gap-2 text-muted"
+        aria-busy="true"
+      >
+        <RefreshCw size={20} className="animate-pulse-soft" aria-hidden />
+        <span>正在连接房间</span>
       </div>
     );
   }
@@ -169,77 +218,160 @@ export default function DuelRoomPage() {
   const shareUrl =
     typeof window !== "undefined" ? `${window.location.origin}/duel/room/${code}` : "";
 
+  // 比分取快照里的 scores / combos（按 slot 索引）。
+  // 不用 players[].score：服务端只写 room.scores，players[].score 恒为 0。
+  const myScore = me ? (snapshot.scores[String(mySlot ?? 0)] ?? 0) : 0;
+  const oppScore = opponent ? (snapshot.scores[String(opponent.slot)] ?? 0) : 0;
+  const myCombo = me ? (snapshot.combos[String(mySlot ?? 0)] ?? 0) : 0;
+  const oppCombo = opponent ? (snapshot.combos[String(opponent.slot)] ?? 0) : 0;
+
+  const scoreTotal = myScore + oppScore;
+  const myPct = scoreTotal > 0 ? myScore / scoreTotal : 0.5;
+  const oppPct = scoreTotal > 0 ? oppScore / scoreTotal : 0.5;
+
+  // 最后 5 秒告急
+  const urgent = status === "question" && seconds <= 5;
+  const limit = Math.max(1, snapshot.limitMs);
+  const timeRatio = Math.max(0, Math.min(1, remaining / limit));
+
+  const QuestionIcon = currentQuestion ? domainIcon(currentQuestion.domain) : null;
+
+  const doCopy = async (text: string) => {
+    const ok = await copyText(text);
+    if (!ok) {
+      setError("复制失败，手动选中即可复制");
+      return;
+    }
+    setError(null);
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 2000);
+  };
+
   return (
     <div className="space-y-4">
-      {/* 顶部状态条 */}
-      <div className="flex items-center justify-between">
-        <div>
+      {/* 顶部状态条：房间码 + 连接状态 + 倒计时 */}
+      <div className="panel flex items-start justify-between gap-3 p-3">
+        <div className="min-w-0">
           <div className="text-xs text-muted">房间码</div>
-          <div className="tabular text-2xl font-bold tracking-[0.2em] text-accent">{code}</div>
+          <div className="mt-0.5 flex items-center gap-2">
+            <div className="tabular text-2xl font-bold tracking-[0.2em] text-accent">{code}</div>
+            <button
+              type="button"
+              onClick={() => void doCopy(code)}
+              aria-label={copied ? "房间码已复制" : "复制房间码"}
+              className="grid h-11 w-11 shrink-0 place-items-center rounded-md border border-border bg-surface-2 text-muted transition-colors duration-fast hover:border-border-strong hover:text-fg"
+            >
+              {copied ? (
+                <Check size={17} className="text-success" aria-hidden />
+              ) : (
+                <Copy size={17} aria-hidden />
+              )}
+            </button>
+          </div>
         </div>
-        <div className="text-right text-xs">
-          {reconnecting ? (
-            <span className="text-warn">🔄 重连中…</span>
-          ) : (
-            <span className="text-muted">● 已连接</span>
-          )}
+
+        <div className="shrink-0 text-right">
+          <div className="flex items-center justify-end gap-1.5 text-xs">
+            {reconnecting ? (
+              <span className="flex items-center gap-1.5 text-gold">
+                <RefreshCw size={13} className="animate-pulse-soft" aria-hidden />
+                重连中
+              </span>
+            ) : (
+              <span className="flex items-center gap-1.5 text-muted">
+                <CircleDot size={13} className="text-success" aria-hidden />
+                已连接
+              </span>
+            )}
+          </div>
           {status === "question" && (
-            <div className="tabular mt-1 text-lg font-bold">{seconds}s</div>
+            <div
+              className={`tabular mt-1 text-2xl font-bold ${
+                urgent ? "animate-pulse-soft text-danger" : "text-fg"
+              }`}
+            >
+              {seconds}s
+            </div>
           )}
           {status === "countdown" && (
-            <div className="tabular mt-1 text-lg font-bold text-warn">准备 {seconds}s</div>
+            <div className="tabular mt-1 text-2xl font-bold text-accent">准备 {seconds}s</div>
           )}
         </div>
       </div>
 
+      {/* 答题阶段：剩余时间条 */}
+      {status === "question" && (
+        <div
+          className="h-1.5 w-full overflow-hidden rounded-pill bg-surface-2"
+          role="img"
+          aria-label={`剩余 ${seconds} 秒`}
+        >
+          <div
+            className={`h-full w-full origin-left rounded-pill transition-all duration-base ${
+              urgent ? "bg-danger" : "bg-accent"
+            }`}
+            style={{ transform: `scaleX(${timeRatio})` }}
+          />
+        </div>
+      )}
+
       {error && (
-        <div className="rounded-lg border border-danger/40 bg-danger/10 px-3 py-2 text-sm text-danger">
+        <div
+          role="alert"
+          className="rounded-md border border-danger/40 bg-danger/10 px-3 py-2 text-sm text-danger"
+        >
           {error}
         </div>
       )}
 
-      {/* 玩家 */}
-      <div className="grid grid-cols-2 gap-3">
-        {[me, opponent].map((p, i) => (
-          <div key={i} className={`panel p-3 ${p ? "" : "opacity-50"}`}>
-            <div className="flex items-center gap-2">
-              <span className="text-xl">{p?.emoji ?? "❔"}</span>
-              <div className="min-w-0 flex-1">
-                <div className="truncate text-sm font-medium">
-                  {p?.name ?? "等待加入…"}
-                  {i === 0 && mySlot === 0 ? "（你）" : ""}
-                </div>
-                <div className="text-xs text-muted">
-                  {p ? (p.connected ? "在线" : "掉线") : "—"}
-                </div>
-              </div>
+      {/* 双方比分条 */}
+      <div className="panel space-y-3 p-4">
+        <div className="flex items-start justify-between gap-3">
+          <PlayerSide player={me} mine score={myScore} combo={myCombo} />
+          <div className="shrink-0 pt-1 text-center">
+            <div className="tabular text-[11px] text-muted">
+              第 {roundIndex + 1} / {totalRounds} 题
             </div>
-            <div className="tabular mt-2 flex items-center justify-between text-xs">
-              <span className="text-muted">{p?.ready ? "✅ 已准备" : "⏳ 未准备"}</span>
-              <span className="font-semibold text-accent">{p?.score ?? 0} 分</span>
-            </div>
-            {(p?.combo ?? 0) >= 2 && (
-              <div className="mt-1 text-right text-xs text-warn">🔥 {p?.combo} 连击</div>
-            )}
+            <div className="mt-1 text-[11px] text-dim">比分</div>
           </div>
-        ))}
+          <PlayerSide player={opponent} score={oppScore} combo={oppCombo} />
+        </div>
+
+        <div
+          className="relative h-2.5 overflow-hidden rounded-pill bg-surface-2"
+          role="img"
+          aria-label={`比分 ${myScore} 比 ${oppScore}`}
+        >
+          <div
+            className="absolute inset-y-0 left-0 w-full origin-left rounded-pill bg-gradient-to-r from-accent to-accent-soft transition-transform duration-base"
+            style={{ transform: `scaleX(${myPct})` }}
+          />
+          <div
+            className="absolute inset-y-0 right-0 w-full origin-right rounded-pill bg-info/70 transition-transform duration-base"
+            style={{ transform: `scaleX(${oppPct})` }}
+          />
+        </div>
       </div>
 
       {/* 领域 */}
       {snapshot.domains.length > 0 && (
-        <div className="flex flex-wrap gap-1.5">
-          {snapshot.domains.map((d) => (
-            <span
-              key={d}
-              className="rounded-full px-2.5 py-1 text-xs"
-              style={{
-                background: `${domainColor(d)}22`,
-                color: domainColor(d),
-              }}
-            >
-              {domainEmoji(d)} {domainName(d)}
-            </span>
-          ))}
+        <div className="flex flex-wrap gap-2">
+          {snapshot.domains.map((d) => {
+            const Icon = domainIcon(d);
+            return (
+              <span
+                key={d}
+                className="flex items-center gap-1.5 rounded-pill px-2.5 py-1 text-xs"
+                style={{
+                  background: `${domainColor(d)}22`,
+                  color: domainColor(d),
+                }}
+              >
+                <Icon size={13} strokeWidth={2.1} aria-hidden />
+                {domainName(d)}
+              </span>
+            );
+          })}
         </div>
       )}
 
@@ -247,19 +379,18 @@ export default function DuelRoomPage() {
       {status === "lobby" && (
         <div className="panel space-y-3 p-4">
           <h2 className="font-semibold">等待对手</h2>
-          <div className="rounded-lg bg-surface-2 p-3">
+          <div className="rounded-md bg-surface-2 p-3">
             <p className="text-xs text-muted">把房间码或链接发给朋友</p>
-            <p className="tabular mt-1 select-all text-lg font-bold tracking-[0.2em] text-accent">
+            <p className="tabular mt-1 select-all text-2xl font-bold tracking-[0.2em] text-accent">
               {code}
             </p>
             <Button
               className="mt-2"
-              size="sm"
               variant="secondary"
-              onClick={() => {
-                void navigator.clipboard?.writeText(shareUrl);
-              }}
+              onClick={() => void doCopy(shareUrl)}
+              disabled={!shareUrl}
             >
+              <Share2 size={16} aria-hidden />
               复制邀请链接
             </Button>
           </div>
@@ -280,7 +411,7 @@ export default function DuelRoomPage() {
             )}
           </div>
           {!opponent && (
-            <p className="text-center text-xs text-muted">房间码已生成，等待好友加入…</p>
+            <p className="text-center text-xs text-muted">房间码已生成，等待好友加入</p>
           )}
         </div>
       )}
@@ -288,7 +419,9 @@ export default function DuelRoomPage() {
       {/* ===== 倒计时 ===== */}
       {status === "countdown" && (
         <div className="panel flex flex-col items-center space-y-2 p-8">
-          <p className="text-sm text-muted">第 {roundIndex + 1} 题即将开始</p>
+          <p className="flex items-center gap-1.5 text-sm text-muted">
+            <Target size={15} aria-hidden />第 {roundIndex + 1} 题即将开始
+          </p>
           <div className="tabular text-6xl font-bold text-accent">{seconds}</div>
         </div>
       )}
@@ -296,31 +429,30 @@ export default function DuelRoomPage() {
       {/* ===== 答题 ===== */}
       {status === "question" && currentQuestion && (
         <div className="space-y-4">
-          <div className="flex items-center justify-between text-sm">
-            <span className="text-muted">
-              第 {roundIndex + 1} / {totalRounds} 题
-            </span>
-            <span className="tabular font-semibold text-accent">{me?.score ?? 0} 分</span>
-          </div>
-
           {opponentAnswered && !submitted && (
-            <div className="rounded-lg border border-warn/40 bg-warn/10 px-3 py-2 text-sm text-warn">
-              ⚡ 对方已经作答了！
+            <div className="flex items-center gap-2 rounded-md border border-gold/40 bg-gold/10 px-3 py-2 text-sm text-gold">
+              <Zap size={15} aria-hidden />
+              对方已经作答
             </div>
           )}
 
           <div className="panel space-y-4 p-4">
             <div className="flex items-center justify-between">
               <span
-                className="rounded-full px-2.5 py-1 text-xs"
+                className="flex items-center gap-1.5 rounded-pill px-2.5 py-1 text-xs"
                 style={{
                   background: `${domainColor(currentQuestion.domain)}22`,
                   color: domainColor(currentQuestion.domain),
                 }}
               >
-                {domainEmoji(currentQuestion.domain)} {domainName(currentQuestion.domain)}
+                {QuestionIcon && <QuestionIcon size={13} strokeWidth={2.1} aria-hidden />}
+                {domainName(currentQuestion.domain)}
               </span>
-              <span className="tabular text-sm text-muted">{seconds}s</span>
+              <span
+                className={`tabular text-sm font-semibold ${urgent ? "text-danger" : "text-muted"}`}
+              >
+                {seconds}s
+              </span>
             </div>
 
             <h2 className="text-lg font-semibold leading-relaxed">{currentQuestion.stem}</h2>
@@ -340,12 +472,12 @@ export default function DuelRoomPage() {
                     <span className="flex items-center gap-2.5">
                       {currentQuestion.type === "multi" && (
                         <span
-                          className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border text-[10px] ${
+                          className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-sm border ${
                             isPicked ? "border-accent bg-accent text-white" : "border-border"
                           }`}
                           aria-hidden
                         >
-                          {isPicked ? "✓" : ""}
+                          {isPicked && <Check size={13} strokeWidth={3} />}
                         </span>
                       )}
                       <span className="flex-1">{opt}</span>
@@ -378,13 +510,22 @@ export default function DuelRoomPage() {
               const drew = rec.winnerSlot === null;
               return (
                 <div className="panel space-y-3 p-4">
-                  <div className="flex items-center justify-between">
+                  <div className="flex items-center justify-between gap-3">
                     <span
-                      className={`text-lg font-bold ${won ? "text-success" : drew ? "text-muted" : "text-danger"}`}
+                      className={`flex items-center gap-2 text-lg font-bold ${
+                        won ? "text-success" : drew ? "text-muted" : "text-danger"
+                      }`}
                     >
-                      {won ? "🎉 这回合你赢了！" : drew ? "⏱ 都没答对" : "⚡ 被对方抢先了"}
+                      {won ? (
+                        <Trophy size={20} aria-hidden />
+                      ) : drew ? (
+                        <Timer size={20} aria-hidden />
+                      ) : (
+                        <Zap size={20} aria-hidden />
+                      )}
+                      {won ? "这回合你赢了" : drew ? "都没答对" : "被对方抢先了"}
                     </span>
-                    <span className="tabular text-sm text-muted">
+                    <span className="tabular shrink-0 text-sm text-muted">
                       {rec.elapsed[String(mySlot ?? 0)] !== null &&
                       rec.elapsed[String(mySlot ?? 0)] !== undefined
                         ? `${(rec.elapsed[String(mySlot ?? 0)] ?? 0) / 1000}s`
@@ -397,35 +538,42 @@ export default function DuelRoomPage() {
                       ? rec.correctAnswer.join("、")
                       : rec.correctAnswer}
                   </p>
-                  <p className="text-sm leading-relaxed text-[#c9ced6]">{rec.explanation}</p>
+                  <p className="text-[15px] leading-[1.65] text-fg/80">{rec.explanation}</p>
                 </div>
               );
             })()}
-          <p className="text-center text-xs text-muted">下一题即将开始…</p>
+          <p className="text-center text-xs text-muted">下一题即将开始</p>
         </div>
       )}
 
       {/* ===== 结束 ===== */}
       {status === "finished" && (
         <div className="panel space-y-4 p-6 text-center">
-          <p className="text-sm text-muted">对局结束</p>
+          <p className="flex items-center justify-center gap-1.5 text-sm text-muted">
+            <Medal size={15} className="text-gold" aria-hidden />
+            对局结束
+          </p>
           <div className="space-y-2">
             {snapshot.players.map((p) => (
               <div
                 key={p.slot}
-                className={`flex items-center gap-3 rounded-lg p-3 ${
+                className={`flex items-center gap-3 rounded-md p-3 text-left ${
                   p.slot === mySlot ? "bg-accent/10" : "bg-surface-2"
                 }`}
               >
-                <span className="text-2xl">{p.emoji}</span>
-                <div className="flex-1 text-left">
-                  <div className="font-medium">
+                <span className="text-2xl" aria-hidden>
+                  {p.emoji}
+                </span>
+                <div className="min-w-0 flex-1">
+                  <div className="truncate font-medium">
                     {p.name}
                     {p.slot === mySlot ? "（你）" : ""}
                   </div>
                   <div className="text-xs text-muted">抢先答对 {p.firstCorrect} 题</div>
                 </div>
-                <span className="tabular text-xl font-bold text-accent">{p.score}</span>
+                <span className="tabular text-xl font-bold text-accent">
+                  {snapshot.scores[String(p.slot)] ?? 0}
+                </span>
               </div>
             ))}
           </div>
@@ -434,7 +582,71 @@ export default function DuelRoomPage() {
               再来一局
             </Button>
           )}
-          {!isHost && <p className="text-xs text-muted">等待房主发起再来一局…</p>}
+          {!isHost && <p className="text-xs text-muted">等待房主发起再来一局</p>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** 比分条的一侧：头像、名字、在线/准备状态、分数与连击。 */
+function PlayerSide({
+  player,
+  mine,
+  score,
+  combo,
+}: {
+  player: PublicPlayer | null;
+  mine?: boolean;
+  score: number;
+  combo: number;
+}) {
+  const align = mine ? "items-start text-left" : "items-end text-right";
+  const row = mine ? "justify-start" : "justify-end";
+
+  return (
+    <div className={`min-w-0 flex-1 ${align}`}>
+      <div className={`flex items-center gap-1.5 ${row}`}>
+        {player ? (
+          <span className="text-xl" aria-hidden>
+            {player.emoji}
+          </span>
+        ) : (
+          <Users size={18} className="shrink-0 text-dim" aria-hidden />
+        )}
+        <span className="truncate text-sm font-semibold">{player?.name ?? "等待加入"}</span>
+        {mine && (
+          <span className="shrink-0 rounded-pill bg-accent/15 px-1.5 py-0.5 text-[10px] text-accent">
+            你
+          </span>
+        )}
+      </div>
+
+      <div className={`mt-0.5 flex items-center gap-1.5 text-xs ${row}`}>
+        {player ? (
+          <>
+            <span className={player.connected ? "text-success" : "text-danger"}>
+              {player.connected ? "在线" : "掉线"}
+            </span>
+            <span className="text-dim">·</span>
+            <span className={player.ready ? "text-success" : "text-muted"}>
+              {player.ready ? "已准备" : "未准备"}
+            </span>
+          </>
+        ) : (
+          <span className="text-dim">—</span>
+        )}
+      </div>
+
+      <div className={`tabular mt-1 text-2xl font-bold ${mine ? "text-accent" : "text-info"}`}>
+        {score}
+        <span className="ml-0.5 text-xs font-normal text-dim">分</span>
+      </div>
+
+      {combo >= 2 && (
+        <div className={`mt-0.5 flex items-center gap-1 text-xs text-gold ${row}`}>
+          <Flame size={12} aria-hidden />
+          <span className="tabular">{combo} 连击</span>
         </div>
       )}
     </div>

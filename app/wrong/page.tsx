@@ -1,13 +1,46 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
+import { Calendar, Check, GraduationCap, NotebookPen, Target, Timer } from "lucide-react";
 
-import { domainColor, domainEmoji, domainName } from "@/content/domains";
+import { domainColor, domainName } from "@/content/domains";
+import { domainIcon } from "@/components/domain/DomainCard";
+import { Button } from "@/components/ui/Button";
 import { getWrongEntries } from "@/lib/storage";
-import { masteryRatio } from "@/lib/engine/repetition";
+import { GRADUATE_STREAK, masteryRatio } from "@/lib/engine/repetition";
 import type { WrongEntry } from "@/types";
 
-/** 错题本：按领域分组，展示掌握进度与到期状态。 */
+const DAY_MS = 86400000;
+
+const DATE_FMT = new Intl.DateTimeFormat("zh-CN", {
+  timeZone: "Asia/Shanghai",
+  month: "numeric",
+  day: "numeric",
+});
+
+interface DueInfo {
+  /** 绝对日期，如「11月5日」。 */
+  abs: string;
+  /** 相对描述，如「3 天后」。 */
+  rel: string;
+  due: boolean;
+}
+
+/** 下次复习时间 → 人类可读的日期 + 相对描述。 */
+function dueInfo(nextDueAt: number, now: number): DueInfo {
+  const diff = nextDueAt - now;
+  const days = Math.ceil(diff / DAY_MS);
+  let rel: string;
+  if (diff <= 0) rel = "现在";
+  else if (days <= 1) rel = "今天";
+  else if (days <= 2) rel = "明天";
+  else if (days <= 30) rel = `${days} 天后`;
+  else rel = `${Math.round(days / 30)} 个月后`;
+  return { abs: DATE_FMT.format(new Date(nextDueAt)), rel, due: diff <= 0 };
+}
+
+/** 错题本：间隔重复队列 —— 什么时候该来、错过几次、连对进度。 */
 export default function WrongPage() {
   const [entries, setEntries] = useState<WrongEntry[]>([]);
   const [ready, setReady] = useState(false);
@@ -17,94 +50,167 @@ export default function WrongPage() {
     setReady(true);
   }, []);
 
-  const grouped = useMemo(() => {
-    const map = new Map<string, WrongEntry[]>();
+  // 队列按「下次该来」的时间排序：到期的排前面，排队的按时间先后
+  const { due, queued, now } = useMemo(() => {
+    const now = Date.now();
+    const dueList: WrongEntry[] = [];
+    const queuedList: WrongEntry[] = [];
     for (const e of entries) {
-      const list = map.get(e.domain) ?? [];
-      list.push(e);
-      map.set(e.domain, list);
+      (e.nextDueAt <= now ? dueList : queuedList).push(e);
     }
-    return Array.from(map.entries());
+    dueList.sort((a, b) => a.nextDueAt - b.nextDueAt);
+    queuedList.sort((a, b) => a.nextDueAt - b.nextDueAt);
+    return { due: dueList, queued: queuedList, now };
   }, [entries]);
 
   if (!ready) return null;
 
   if (entries.length === 0) {
     return (
-      <div className="panel space-y-2 p-8 text-center">
-        <div className="text-4xl">✨</div>
+      <div className="panel space-y-3 p-8 text-center">
+        <span className="mx-auto grid h-14 w-14 place-items-center rounded-lg bg-surface-2 text-gold">
+          <NotebookPen size={26} strokeWidth={1.8} aria-hidden />
+        </span>
         <p className="font-medium">错题本还是空的</p>
-        <p className="text-sm text-muted">
-          答错的题会自动进来。连续答对两次就会「毕业」离开 —— 老朋友会再来找你几次。
+        <p className="mx-auto max-w-sm text-sm text-muted">
+          答错的题会自动进来，间隔几天再来找你一次。连续答对 {GRADUATE_STREAK} 次就毕业离场。
         </p>
+        <Link href="/daily" className="inline-block">
+          <Button>
+            <Target size={16} aria-hidden />
+            去答一局
+          </Button>
+        </Link>
       </div>
     );
   }
 
-  const now = Date.now();
-  const dueCount = entries.filter((e) => e.nextDueAt <= now).length;
+  const ratio = Math.round(masteryRatio(entries) * 100);
 
   return (
     <div className="space-y-4">
-      <header>
-        <h1 className="text-xl font-bold">📕 错题本</h1>
-        <p className="mt-1 text-sm text-muted">
-          共 {entries.length} 题 · 掌握度 {Math.round(masteryRatio(entries) * 100)}% ·{" "}
-          {dueCount > 0 ? `${dueCount} 题该复习了` : "暂时没有到期的题"}
+      <header className="space-y-1">
+        <h1 className="flex items-center gap-2 text-xl font-bold tracking-tight">
+          <NotebookPen size={20} className="text-gold" aria-hidden />
+          错题本
+        </h1>
+        <p className="text-sm text-muted">
+          答错的题按间隔重来。连对 {GRADUATE_STREAK} 次毕业，队列只存在本机。
         </p>
       </header>
 
-      {grouped.map(([domain, list]) => (
-        <section key={domain} className="space-y-2">
-          <div className="flex items-center gap-2">
-            <span className="text-lg">{domainEmoji(domain as never)}</span>
-            <h2 className="font-semibold">{domainName(domain as never)}</h2>
-            <span className="tabular ml-auto text-sm text-muted">{list.length} 题</span>
+      {/* 队列速览 */}
+      <div className="grid grid-cols-3 gap-3">
+        <div className="panel p-3">
+          <div className="flex items-center gap-1.5 text-xs text-muted">
+            <Timer size={13} className="text-accent" aria-hidden />
+            该复习
           </div>
+          <div className="tabular mt-1 text-xl font-bold text-accent">{due.length}</div>
+        </div>
+        <div className="panel p-3">
+          <div className="flex items-center gap-1.5 text-xs text-muted">
+            <GraduationCap size={13} className="text-success" aria-hidden />
+            掌握度
+          </div>
+          <div className="tabular mt-1 text-xl font-bold">{ratio}%</div>
+        </div>
+        <div className="panel p-3">
+          <div className="flex items-center gap-1.5 text-xs text-muted">
+            <NotebookPen size={13} className="text-info" aria-hidden />
+            队列长度
+          </div>
+          <div className="tabular mt-1 text-xl font-bold">{entries.length}</div>
+        </div>
+      </div>
 
-          {list.map((e) => {
-            const due = e.nextDueAt <= now;
-            return (
-              <div key={e.questionId} className="panel p-3">
-                <div className="flex items-center gap-2 text-sm">
-                  <span className="rounded bg-surface-2 px-1.5 py-0.5 text-xs text-muted">
-                    {e.topic}
-                  </span>
-                  <span className="text-xs text-muted">错 {e.wrongCount} 次</span>
-                  <span className="ml-auto flex items-center gap-0.5" aria-label="连对进度">
-                    {[0, 1].map((i) => (
-                      <span
-                        key={i}
-                        className="star-dot"
-                        data-filled={i < e.streak}
-                        style={
-                          i < e.streak ? { background: domainColor(domain as never) } : undefined
-                        }
-                      />
-                    ))}
-                  </span>
-                </div>
-                <div className="mt-2 flex items-center justify-between text-xs">
-                  <span className={due ? "text-warn" : "text-muted"}>
-                    {due ? "🔔 该复习了" : `下次复习：${formatDue(e.nextDueAt, now)}`}
-                  </span>
-                  <span className="text-muted">难度 {e.ease.toFixed(1)}</span>
-                </div>
-              </div>
-            );
-          })}
+      {/* 该复习了 */}
+      {due.length > 0 && (
+        <section className="space-y-2">
+          <div className="flex items-center gap-2">
+            <span className="h-1.5 w-1.5 rounded-full bg-accent" aria-hidden />
+            <h2 className="text-sm font-semibold">该复习了</h2>
+            <span className="tabular ml-auto text-xs text-muted">{due.length} 题</span>
+          </div>
+          {due.map((e) => (
+            <WrongRow key={e.questionId} entry={e} now={now} />
+          ))}
         </section>
-      ))}
+      )}
+
+      {/* 排队中 */}
+      {queued.length > 0 && (
+        <section className="space-y-2">
+          <div className="flex items-center gap-2">
+            <span className="h-1.5 w-1.5 rounded-full bg-border-strong" aria-hidden />
+            <h2 className="text-sm font-semibold">排队中</h2>
+            <span className="tabular ml-auto text-xs text-muted">{queued.length} 题</span>
+          </div>
+          {queued.map((e) => (
+            <WrongRow key={e.questionId} entry={e} now={now} />
+          ))}
+        </section>
+      )}
     </div>
   );
 }
 
-/** 把下次复习时间渲染成人类可读的相对描述。 */
-function formatDue(nextDueAt: number, now: number): string {
-  const diff = nextDueAt - now;
-  const days = Math.ceil(diff / 86400000);
-  if (diff <= 0) return "现在";
-  if (days <= 1) return "明天";
-  if (days <= 30) return `${days} 天后`;
-  return `${Math.round(days / 30)} 个月后`;
+/** 队列中的一道错题。 */
+function WrongRow({ entry, now }: { entry: WrongEntry; now: number }) {
+  const info = dueInfo(entry.nextDueAt, now);
+  const color = domainColor(entry.domain);
+  const Icon = domainIcon(entry.domain);
+
+  return (
+    <div className="panel p-3">
+      <div className="flex items-center gap-2">
+        <span
+          aria-hidden
+          className="grid h-7 w-7 shrink-0 place-items-center rounded-sm"
+          style={{ background: `${color}22`, color }}
+        >
+          <Icon size={15} strokeWidth={2.1} />
+        </span>
+        <span className="truncate text-sm font-medium">{domainName(entry.domain)}</span>
+        <span className="truncate text-xs text-muted">· {entry.topic}</span>
+        <span className="tabular ml-auto shrink-0 text-xs text-muted">
+          错 {entry.wrongCount} 次
+        </span>
+      </div>
+
+      <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-xs">
+        {/* 下次该来 */}
+        <span className={info.due ? "font-semibold text-accent" : "text-muted"}>
+          <Calendar size={12} className="mr-1 inline align-[-2px]" aria-hidden />
+          {info.due ? "现在就该来" : `${info.abs} · ${info.rel}`}
+        </span>
+
+        {/* 连对进度 */}
+        <span className="flex items-center gap-1 text-muted">
+          <span className="flex items-center gap-0.5" aria-hidden>
+            {Array.from({ length: GRADUATE_STREAK }, (_, i) => (
+              <span
+                key={i}
+                className="star-dot"
+                data-filled={i < entry.streak}
+                style={i < entry.streak ? { background: color } : undefined}
+              />
+            ))}
+          </span>
+          {entry.streak >= GRADUATE_STREAK ? (
+            <span className="flex items-center gap-1 font-semibold text-success">
+              <Check size={12} aria-hidden />
+              已毕业
+            </span>
+          ) : (
+            <span className="tabular">
+              连对 {entry.streak} / {GRADUATE_STREAK}
+            </span>
+          )}
+        </span>
+
+        <span className="tabular ml-auto text-dim">记忆系数 {entry.ease.toFixed(1)}</span>
+      </div>
+    </div>
+  );
 }

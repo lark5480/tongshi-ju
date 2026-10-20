@@ -129,6 +129,7 @@ test("完整对局：建房 → 加入 → 准备 → 开局 → 抢答 → 结�
     room: {
       status: string;
       scores: Record<string, number>;
+      players: { slot: number; score: number; combo: number; firstCorrect: number }[];
       history: { winnerSlot: number | null; points: Record<string, number> }[];
     };
   };
@@ -136,6 +137,22 @@ test("完整对局：建房 → 加入 → 准备 → 开局 → 抢答 → 结�
   assert.ok(after.room.scores["0"] > 0, "抢答者应得分");
   assert.equal(after.room.scores["1"], 0, "对手该题 0 分");
   assert.equal(after.room.history[0].winnerSlot, 0);
+
+  // 回归：players[].score 必须与 scores[slot] 一致。
+  // 历史缺陷：服务端只写 room.scores / room.combos / room.firstCorrect，
+  // 从不写 player.score / player.combo / player.firstCorrect，
+  // 于是对外快照里 players[].score 恒为 0（比分条永远显示 0 分）。
+  const hostPlayer = after.room.players.find((p) => p.slot === 0);
+  assert.ok(hostPlayer, "快照应包含房主");
+  assert.equal(
+    hostPlayer!.score,
+    after.room.scores["0"],
+    "players[].score 必须与 scores[slot] 一致"
+  );
+  assert.ok(hostPlayer!.score > 0, "房主在 players[] 里的得分应大于 0");
+  assert.equal(hostPlayer!.firstCorrect, 1, "房主应记 1 次抢先答对");
+  const guestPlayer = after.room.players.find((p) => p.slot === 1);
+  assert.equal(guestPlayer!.score, 0, "对手在 players[] 里的得分应为 0");
 });
 
 test("凭证纪律：房间快照的 JSON 里不含任何 playerId", async () => {

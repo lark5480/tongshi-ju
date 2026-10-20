@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
+import { Layers } from "lucide-react";
 
 import type { DomainId } from "@/types";
 import { DOMAINS } from "@/content/domains";
@@ -32,18 +33,35 @@ export function DomainPicker({ selected, onChange, max = 3, disabled }: DomainPi
     onChange([...selected, id]);
   };
 
+  const remaining = max - selected.length;
+
   return (
-    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-      {DOMAINS.map((d) => (
-        <DomainCard
-          key={d.id}
-          domain={d}
-          selected={selected.includes(d.id)}
-          mastery={mastery[`${d.id}|${d.topics[0] ?? ""}`] ?? 0}
-          onToggle={toggle}
-          disabled={disabled}
-        />
-      ))}
+    <div className="space-y-3">
+      {/* 已选计数 */}
+      <div className="flex items-center gap-2 rounded-md border border-border bg-surface-2 px-3 py-2">
+        <Layers size={14} className="shrink-0 text-dim" aria-hidden />
+        <span className="text-xs text-muted">已选领域</span>
+        <span className="tabular ml-auto text-sm font-semibold">
+          {selected.length} / {max}
+        </span>
+      </div>
+
+      <p className="text-xs text-dim">
+        {remaining > 0 ? `还可以再选 ${remaining} 个` : "已经选满了，取消一个才能换新的"}
+      </p>
+
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        {DOMAINS.map((d) => (
+          <DomainCard
+            key={d.id}
+            domain={d}
+            selected={selected.includes(d.id)}
+            mastery={mastery[`${d.id}|${d.topics[0] ?? ""}`] ?? 0}
+            onToggle={toggle}
+            disabled={disabled}
+          />
+        ))}
+      </div>
     </div>
   );
 }

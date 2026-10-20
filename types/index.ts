@@ -107,9 +107,16 @@ export interface PublicPlayer {
   emoji: string;
   ready: boolean;
   connected: boolean;
+  /**
+   * 本人当前得分。
+   *
+   * 与 `RoomSnapshot.scores[slot]` **始终一致** —— 快照构建时从真相派生，
+   * 不读可能滞后的内部镜像字段。
+   */
   score: number;
+  /** 当前连击。同上，与 `combos[slot]` 一致。 */
   combo: number;
-  /** 抢先答对的题数（平分时的次级判据）。 */
+  /** 抢先答对的题数（平分时的次级判据）。同上，与 `firstCorrect[slot]` 一致。 */
   firstCorrect: number;
 }
 
