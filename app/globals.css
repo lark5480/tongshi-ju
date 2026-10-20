@@ -1,0 +1,101 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+  --font-sans:
+    ui-sans-serif, system-ui, "PingFang SC", "Microsoft YaHei", "Noto Sans SC", sans-serif;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  @apply bg-bg text-[#e8eaed] antialiased;
+  font-family: var(--font-sans);
+  /* 移动端安全区 */
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+/* 数字等宽，避免倒计时跳动导致布局抖动 */
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+/* 滚动条 */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  @apply bg-border rounded-full;
+}
+::-webkit-scrollbar-thumb:hover {
+  @apply bg-muted;
+}
+
+/* 隐藏滚动条但保留滚动（横向 chip 行） */
+.no-scrollbar {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+/* 焦点可见性：键盘导航必须看得见 */
+:focus-visible {
+  @apply outline-none ring-2 ring-accent ring-offset-2 ring-offset-bg;
+}
+
+/* 选域卡片 */
+.domain-card {
+  @apply relative overflow-hidden rounded-xl border border-border bg-surface p-4
+         transition-all duration-200 cursor-pointer select-none;
+}
+.domain-card:hover {
+  @apply border-accent/60 -translate-y-0.5;
+}
+.domain-card[data-selected="true"] {
+  @apply border-accent bg-accent/10;
+}
+
+/* 题目选项 */
+.option-btn {
+  @apply w-full rounded-lg border border-border bg-surface-2 px-4 py-3 text-left
+         transition-all duration-150 cursor-pointer;
+}
+.option-btn:hover:not(:disabled) {
+  @apply border-accent/70 bg-accent/10;
+}
+.option-btn:disabled {
+  @apply cursor-default;
+}
+.option-btn[data-state="correct"] {
+  @apply border-success bg-success/15;
+}
+.option-btn[data-state="wrong"] {
+  @apply border-danger bg-danger/15;
+}
+.option-btn[data-state="dimmed"] {
+  @apply opacity-50;
+}
+
+/* 卡片通用 */
+.panel {
+  @apply rounded-xl border border-border bg-surface;
+}
+
+/* 星图 */
+.star-dot {
+  @apply inline-block h-2 w-2 rounded-full bg-border;
+}
+.star-dot[data-filled="true"] {
+  @apply bg-accent;
+}

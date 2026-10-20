@@ -1,0 +1,54 @@
+name: CI
+
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+    branches: [main, dev]
+
+# 同一分支上的新提交自动取消旧任务，节省 CI 时长
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NEXT_TELEMETRY_DISABLED: 1
+
+jobs:
+  verify:
+    name: Lint · Format · Typecheck · Test · Build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Format check
+        run: npm run format:check
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Content validation
+        run: npm run validate:content
+
+      - name: Check edgeone.json keeps maxDuration=120
+        run: node -e "const c=require('./edgeone.json');if(c.nodeFunctionsConfig?.maxDuration!==120){console.error('edgeone.json 必须保留 nodeFunctionsConfig.maxDuration=120');process.exit(1)}"
+
+      - name: Unit tests
+        run: npm test
+
+      - name: Production build
+        run: npm run build

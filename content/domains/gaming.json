@@ -1,0 +1,430 @@
+{
+  "domain": "gaming",
+  "questions": [
+    {
+      "id": "gaming-0001",
+      "topic": "主机与PC",
+      "difficulty": 1,
+      "type": "judge",
+      "stem": "任天堂的家用游戏主机 Switch 采用了掌机与主机混合的设计，可以脱离底座独立游玩。",
+      "options": ["正确", "错误"],
+      "answer": "正确",
+      "explanation": "Switch 于 2017 年 3 月发售，标志性的设计就是「掌机/主机一体」，拆下底座后可作为掌机使用。"
+    },
+    {
+      "id": "gaming-0002",
+      "topic": "主机与PC",
+      "difficulty": 1,
+      "type": "single",
+      "stem": "世界上第一款商业家用游戏主机是？",
+      "options": [
+        "Magnavox Odyssey（1972 年）",
+        "Atari 2600（1977 年）",
+        "任天堂娱乐系统（1983 年）",
+        "Sega Master System（1986 年）"
+      ],
+      "answer": "Magnavox Odyssey（1972 年）",
+      "explanation": "1972 年推出的 Magnavox Odyssey 被普遍认为是第一款商业化家用游戏主机，早于 Atari 2600 五年。"
+    },
+    {
+      "id": "gaming-0003",
+      "topic": "主机与PC",
+      "difficulty": 2,
+      "type": "single",
+      "stem": "PC 显卡领域以「GeForce」系列闻名的厂商是？",
+      "options": ["NVIDIA", "AMD", "Intel", "ARM"],
+      "answer": "NVIDIA",
+      "explanation": "NVIDIA 以 GeForce 消费级显卡与 CUDA 生态闻名；AMD 的消费级显卡品牌则是 Radeon。"
+    },
+    {
+      "id": "gaming-0004",
+      "topic": "主机与PC",
+      "difficulty": 2,
+      "type": "single",
+      "stem": "PlayStation 5 的 DualSense 手柄相比 DualShock 4，最具代表性的新增能力是？",
+      "options": ["触觉反馈与自适应扳机", "更大的电池容量", "完全取消震动", "增加摇杆数量"],
+      "answer": "触觉反馈与自适应扳机",
+      "explanation": "DualSense 引入触觉反馈（haptic feedback）与自适应扳机（adaptive triggers），用不同强度模拟不同材质与阻尼。"
+    },
+    {
+      "id": "gaming-0005",
+      "topic": "主机与PC",
+      "difficulty": 1,
+      "type": "judge",
+      "stem": "Steam 是 Valve 公司开发的数字游戏商店与发行平台。",
+      "options": ["正确", "错误"],
+      "answer": "正确",
+      "explanation": "Steam 于 2003 年上线，是目前全球规模最大的 PC 数字游戏分发平台之一。"
+    },
+    {
+      "id": "gaming-0006",
+      "topic": "主机与PC",
+      "difficulty": 3,
+      "type": "multi",
+      "stem": "以下哪些是常见的 PC 数字游戏商店？",
+      "options": ["Steam", "Epic Games Store", "GOG", "PlayStation Store"],
+      "answer": ["Epic Games Store", "GOG", "Steam"],
+      "explanation": "PlayStation Store 是索尼主机平台的商店，而 Steam、Epic Games Store、GOG 都是 PC 平台。"
+    },
+    {
+      "id": "gaming-0007",
+      "topic": "主机与PC",
+      "difficulty": 3,
+      "type": "single",
+      "stem": "游戏开发中常说的「帧率（FPS）」指的是？",
+      "options": ["每秒画面更新次数", "网络延迟的毫秒数", "单帧的三角形数量", "每秒的按键次数"],
+      "answer": "每秒画面更新次数",
+      "explanation": "FPS 越高画面越流畅，60 FPS 通常是现代游戏的及格线，竞技游戏往往追求 144 FPS 以上。"
+    },
+    {
+      "id": "gaming-0008",
+      "topic": "主机与PC",
+      "difficulty": 3,
+      "type": "single",
+      "stem": "电子竞技领域通常用什么缩写来指代电竞运动员？",
+      "options": ["Pro（职业选手）", "NPC", "GM", "LAG"],
+      "answer": "Pro（职业选手）",
+      "explanation": "职业选手常被称为职业选手或 Pro，与非职业玩家区分；NPC 指非玩家角色。"
+    },
+    {
+      "id": "gaming-0009",
+      "topic": "手游",
+      "difficulty": 1,
+      "type": "single",
+      "stem": "《王者荣耀》由哪家公司研发并运营？",
+      "options": ["腾讯", "网易", "米哈游", "字节跳动"],
+      "answer": "腾讯",
+      "explanation": "《王者荣耀》由腾讯天美工作室群研发，2015 年上线后长期占据手游畅销榜首位。"
+    },
+    {
+      "id": "gaming-0010",
+      "topic": "手游",
+      "difficulty": 2,
+      "type": "single",
+      "stem": "《原神》是由哪家公司开发的？",
+      "options": ["米哈游", "腾讯", "网易", "莉莉丝"],
+      "answer": "米哈游",
+      "explanation": "《原神》由米哈游开发，2020 年上线，是全球收入最高的移动游戏之一。"
+    },
+    {
+      "id": "gaming-0011",
+      "topic": "手游",
+      "difficulty": 3,
+      "type": "single",
+      "stem": "日语中的「ガチャ」（gacha）对应的中文玩法俗称是？",
+      "options": ["抽卡", "扫雷", "合成", "扭蛋"],
+      "answer": "抽卡",
+      "explanation": "源自扭蛋机与日本抽卡游戏，中文玩家普遍称之为「抽卡」，指消耗资源随机获得道具的机制。"
+    },
+    {
+      "id": "gaming-0012",
+      "topic": "手游",
+      "difficulty": 3,
+      "type": "single",
+      "stem": "手游商业模式中「F2P」代表什么？",
+      "options": [
+        "Free to Play，免费游玩，通过内购变现",
+        "Pay to Play，付费下载后游玩",
+        "First to Play，抢先体验付费",
+        "Full to Play，全部内容免费"
+      ],
+      "answer": "Free to Play，免费游玩，通过内购变现",
+      "explanation": "F2P 是主流手游商业模式：下载免费，核心收入来自抽卡、通行证与道具内购。"
+    },
+    {
+      "id": "gaming-0013",
+      "topic": "品类与玩法",
+      "difficulty": 1,
+      "type": "single",
+      "stem": "「RPG」是下列哪个英文词的缩写？",
+      "options": [
+        "Role-Playing Game",
+        "Real Player Game",
+        "Rapid Progression Gaming",
+        "Random Puzzle Generation"
+      ],
+      "answer": "Role-Playing Game",
+      "explanation": "RPG 即角色扮演游戏，核心是角色成长、剧情推进与数值养成。"
+    },
+    {
+      "id": "gaming-0014",
+      "topic": "品类与玩法",
+      "difficulty": 1,
+      "type": "single",
+      "stem": "「MOBA」类型的全称是？",
+      "options": [
+        "Multiplayer Online Battle Arena",
+        "Mass Online Battle Arena",
+        "Multi-Online Battle Action",
+        "Massively Online Battleground"
+      ],
+      "answer": "Multiplayer Online Battle Arena",
+      "explanation": "MOBA 即多人在线战术竞技场，代表作有《英雄联盟》《Dota 2》《王者荣耀》。"
+    },
+    {
+      "id": "gaming-0015",
+      "topic": "品类与玩法",
+      "difficulty": 1,
+      "type": "single",
+      "stem": "「FPS」是下列哪类游戏的缩写？",
+      "options": ["第一人称射击", "第三人称射击", "回合制策略", "模拟经营"],
+      "answer": "第一人称射击",
+      "explanation": "FPS 即 First-Person Shooting，代表作有《CS》《使命召唤》《Valorant》。"
+    },
+    {
+      "id": "gaming-0016",
+      "topic": "品类与玩法",
+      "difficulty": 2,
+      "type": "single",
+      "stem": "「Roguelike」类游戏的核心特征是？",
+      "options": ["随机生成的关卡与死亡后重来", "固定关卡与永久存档", "回合制战棋", "多人在线竞技"],
+      "answer": "随机生成的关卡与死亡后重来",
+      "explanation": "Roguelike 强调随机地图、永久死亡与资源积累，代表作有《挺进地牢》与《杀戮尖塔》。"
+    },
+    {
+      "id": "gaming-0017",
+      "topic": "品类与玩法",
+      "difficulty": 3,
+      "type": "single",
+      "stem": "通常被称为「类魂（Soulslike）」的游戏，设计上一般**不**具备下列哪项特征？",
+      "options": ["回合制指令战斗", "高难度惩罚", "检查点式存档", "翻滚闪避"],
+      "answer": "回合制指令战斗",
+      "explanation": "类魂游戏的标志是实时动作、高难度、翻滚闪避与检查点式存档，而非回合制指令。"
+    },
+    {
+      "id": "gaming-0018",
+      "topic": "品类与玩法",
+      "difficulty": 3,
+      "type": "single",
+      "stem": "「开放世界」游戏与「线性」游戏的核心差别在于？",
+      "options": ["玩家可以在较大地图上自由探索", "画面精度更高", "剧情长度更短", "必须支持多人"],
+      "answer": "玩家可以在较大地图上自由探索",
+      "explanation": "开放世界强调非线性的自由探索与涌现式内容，而线性游戏按固定顺序推进流程。"
+    },
+    {
+      "id": "gaming-0019",
+      "topic": "品类与玩法",
+      "difficulty": 2,
+      "type": "judge",
+      "stem": "弹幕射击游戏（Shoot 'em up）的核心玩法是操控载具发射弹幕进行躲避与攻击。",
+      "options": ["正确", "错误"],
+      "answer": "正确",
+      "explanation": "弹幕射击的精髓是密集弹幕与走位躲避，代表作有《东方Project》《雷电》《斑鸠》。"
+    },
+    {
+      "id": "gaming-0020",
+      "topic": "品类与玩法",
+      "difficulty": 2,
+      "type": "single",
+      "stem": "在刷宝类游戏中，「词缀（affix）」通常指？",
+      "options": ["装备上随机附加的属性词条", "装备的等级数字", "玩家的角色名", "地图的区域名称"],
+      "answer": "装备上随机附加的属性词条",
+      "explanation": "词缀是装备的随机属性行，如「+10 暴击」，同等级装备因词缀组合不同而价值不同。"
+    },
+    {
+      "id": "gaming-0021",
+      "topic": "经典作品",
+      "difficulty": 1,
+      "type": "single",
+      "stem": "《超级马里奥兄弟》最初在哪款家用机上发售？",
+      "options": ["NES（FC）", "SNES（超级任天堂）", "N64", "Game Boy"],
+      "answer": "NES（FC）",
+      "explanation": "1985 年《超级马里奥兄弟》登陆任天堂红白机 FC/NES，奠定了平台跳跃玩法范式。"
+    },
+    {
+      "id": "gaming-0022",
+      "topic": "经典作品",
+      "difficulty": 1,
+      "type": "single",
+      "stem": "《塞尔达传说：旷野之息》最早于哪一年发售？",
+      "options": ["2017 年", "2015 年", "2019 年", "2013 年"],
+      "answer": "2017 年",
+      "explanation": "《旷野之息》于 2017 年 3 月发售，是任天堂 Switch 首发同期作品，获多家媒体年度游戏。"
+    },
+    {
+      "id": "gaming-0023",
+      "topic": "经典作品",
+      "difficulty": 2,
+      "type": "single",
+      "stem": "《黑神话：悟空》由哪家中国工作室开发？",
+      "options": ["游戏科学", "腾讯天美", "网易雷火", "米哈游"],
+      "answer": "游戏科学",
+      "explanation": "游戏科学（Game Science）工作室开发的《黑神话：悟空》于 2024 年 8 月发售。"
+    },
+    {
+      "id": "gaming-0024",
+      "topic": "经典作品",
+      "difficulty": 2,
+      "type": "single",
+      "stem": "《俄罗斯方块》的最初作者是谁？",
+      "options": ["阿列克谢·帕基诺夫", "瓦西里·多夫多罗夫", "罗贝尔·盖尼", "汤姆·罗根"],
+      "answer": "阿列克谢·帕基诺夫",
+      "explanation": "苏联程序员阿列克谢·帕基诺夫于 1984 年开发出初代《俄罗斯方块》，后由 EA 推向全球。"
+    },
+    {
+      "id": "gaming-0025",
+      "topic": "经典作品",
+      "difficulty": 2,
+      "type": "judge",
+      "stem": "《我的世界》（Minecraft）最初由 Notch 独立开发，之后由 Mojang 工作室发行。",
+      "options": ["正确", "错误"],
+      "answer": "正确",
+      "explanation": "Notch（Jens Bergensten 接手后）主导开发，Mojang 于 2009 年正式发行该游戏。"
+    },
+    {
+      "id": "gaming-0026",
+      "topic": "经典作品",
+      "difficulty": 3,
+      "type": "multi",
+      "stem": "以下哪些作品通常被归入「类魂」或「魂系」游戏？",
+      "options": ["《黑暗之魂》", "《血源诅咒》", "《艾尔登法环》", "《巫师 3》"],
+      "answer": ["《艾尔登法环》", "《血源诅咒》", "《黑暗之魂》"],
+      "explanation": "《巫师 3》是叙事向开放世界 RPG，与类魂的高难度翻滚战斗设计并不同类。"
+    },
+    {
+      "id": "gaming-0027",
+      "topic": "经典作品",
+      "difficulty": 3,
+      "type": "single",
+      "stem": "1993 年首次发布的初代《DOOM》采用了什么技术来呈现 3D 画面？",
+      "options": ["2D 引擎配合光线投射的伪 3D", "全多边形建模渲染", "光线追踪", "体素渲染"],
+      "answer": "2D 引擎配合光线投射的伪 3D",
+      "explanation": "初代 DOOM 没有真正的 3D 几何，靠 2D 贴图与柱面映射模拟纵深，却开创了 FPS 品类。"
+    },
+    {
+      "id": "gaming-0028",
+      "topic": "经典作品",
+      "difficulty": 1,
+      "type": "single",
+      "stem": "《俄罗斯方块》中每下落一个方块会消除几行？",
+      "options": ["1 行", "2 行", "4 行", "整个屏幕"],
+      "answer": "1 行",
+      "explanation": "方块落下填满一行即消除该行并得分，连消多行会获得更高分值。"
+    },
+    {
+      "id": "gaming-0029",
+      "topic": "经典作品",
+      "difficulty": 3,
+      "type": "single",
+      "stem": "《星露谷物语》（Stardew Valley）由谁独立开发？",
+      "options": ["ConcernedApe（Eric Barone）", "Toby Fox", "Jonathan Blow", "Tale of Tales"],
+      "answer": "ConcernedApe（Eric Barone）",
+      "explanation": "开发者 Eric Barone 以网名 ConcernedApe 独自完成这款农场模拟游戏，2016 年初发售。"
+    },
+    {
+      "id": "gaming-0030",
+      "topic": "经典作品",
+      "difficulty": 2,
+      "type": "single",
+      "stem": "《黑盒》类经典单机游戏《传送门 2》（Portal 2）的核心解谜机制依赖哪种空间概念？",
+      "options": ["可自由创建并连接两扇门的空间", "平面拼图", "时间倒流", "重力反转"],
+      "answer": "可自由创建并连接两扇门的空间",
+      "explanation": "Portal 2 的「传送门枪」可在墙面成对生成传送门，把空间连通性变成解谜核心。"
+    },
+    {
+      "id": "gaming-0031",
+      "topic": "赛事",
+      "difficulty": 1,
+      "type": "single",
+      "stem": "《Dota 2》国际邀请赛（The International）的冠军奖杯叫什么？",
+      "options": ["胜利之神盾（Aegis of Champions）", "冠军奖杯", "永恒之火", "不朽之杯"],
+      "answer": "胜利之神盾（Aegis of Champions）",
+      "explanation": "TI 冠军奖杯称为「胜利之神盾」，常被简称为「冠军盾」或「TI 盾」。"
+    },
+    {
+      "id": "gaming-0032",
+      "topic": "赛事",
+      "difficulty": 2,
+      "type": "judge",
+      "stem": "《英雄联盟》全球总决赛（Worlds）第一届于 2014 年举办。",
+      "options": ["正确", "错误"],
+      "answer": "正确",
+      "explanation": "2014 年首届英雄联盟全球总决赛举办，当年由三星白队夺冠。"
+    },
+    {
+      "id": "gaming-0033",
+      "topic": "赛事",
+      "difficulty": 3,
+      "type": "single",
+      "stem": "在《Dota 2》中夺得 TI 冠军的选手，可以在冠军盾上做什么？",
+      "options": [
+        "刻上自己的游戏 ID 与签名",
+        "没有任何特殊权利",
+        "把盾的颜色改成金色",
+        "解锁专属皮肤"
+      ],
+      "answer": "刻上自己的游戏 ID 与签名",
+      "explanation": "TI 冠军选手的 ID 会被刻在胜利之神盾上留念，这成为 Dota 社区的重要传统。"
+    },
+    {
+      "id": "gaming-0034",
+      "topic": "赛事",
+      "difficulty": 2,
+      "type": "single",
+      "stem": "《CS》系列中，「CS:GO」里的「GO」指的是？",
+      "options": ["Global Offensive（全球进攻）", "Game Over", "Gold Online", "Game On"],
+      "answer": "Global Offensive（全球进攻）",
+      "explanation": "CS:GO 全称 Counter-Strike: Global Offensive，是 2012 年发布的多人射击竞技游戏。"
+    },
+    {
+      "id": "gaming-0035",
+      "topic": "赛事",
+      "difficulty": 1,
+      "type": "judge",
+      "stem": "电子竞技在 2017 年被国际奥委会正式承认为一项正式运动。",
+      "options": ["正确", "错误"],
+      "answer": "正确",
+      "explanation": "2017 年国际奥委会在全会决议中承认电子竞技为正式运动，首届电竞奥运项目亦随之推进。"
+    },
+    {
+      "id": "gaming-0036",
+      "topic": "梗与亚文化",
+      "difficulty": 1,
+      "type": "single",
+      "stem": "玩家口中的「肝」指的是？",
+      "options": ["投入大量时间换取进度", "愤怒", "退出游戏", "组队开黑"],
+      "answer": "投入大量时间换取进度",
+      "explanation": "「肝」描述的是长时间重复劳动式的游戏行为，源自「肝帝」等说法。"
+    },
+    {
+      "id": "gaming-0037",
+      "topic": "梗与亚文化",
+      "difficulty": 1,
+      "type": "single",
+      "stem": "「开黑」在游戏圈通常指？",
+      "options": ["与朋友组队一起玩", "独自单机通关", "购买游戏本体", "修改游戏存档"],
+      "answer": "与朋友组队一起玩",
+      "explanation": "「开黑」源自麻将术语，游戏中指多人组队协作，通常强调一起语音开玩。"
+    },
+    {
+      "id": "gaming-0038",
+      "topic": "梗与亚文化",
+      "difficulty": 2,
+      "type": "single",
+      "stem": "玩家口中的「闪退」指的是？",
+      "options": ["游戏意外关闭回到桌面", "画面卡顿掉帧", "加载速度过慢", "网络延迟"],
+      "answer": "游戏意外关闭回到桌面",
+      "explanation": "闪退（Crash）指程序异常终止；卡顿、加载慢、延迟是不同的问题，不应混用。"
+    },
+    {
+      "id": "gaming-0039",
+      "topic": "梗与亚文化",
+      "difficulty": 2,
+      "type": "single",
+      "stem": "游戏交易语境中的「咸鱼」通常形容？",
+      "options": ["长期不活跃的账号", "使用外挂的玩家", "大量氪金的玩家", "刚注册的新手"],
+      "answer": "长期不活跃的账号",
+      "explanation": "「咸鱼」形容闲置、久未登录的账号或玩家，出自「咸鱼翻身」的网络说法。"
+    },
+    {
+      "id": "gaming-0040",
+      "topic": "梗与亚文化",
+      "difficulty": 3,
+      "type": "single",
+      "stem": "网络流行语「一个操作」在游戏圈一般用于形容？",
+      "options": ["一次失误的操作", "一次精彩的操作", "一段网络延迟", "一种关卡设计"],
+      "answer": "一次失误的操作",
+      "explanation": "「一个操作」通常指关键时刻的失误导致翻车，是中文游戏社区的高频吐槽句式。"
+    }
+  ]
+}

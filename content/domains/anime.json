@@ -1,0 +1,425 @@
+{
+  "domain": "anime",
+  "questions": [
+    {
+      "id": "anime-0001",
+      "topic": "经典作品",
+      "difficulty": 1,
+      "type": "single",
+      "stem": "《灌篮高手》（Slam Dunk）的原作漫画作者是谁？",
+      "options": ["井上雄彦", "高桥留美子", "青山刚昌", "尾田荣一郎"],
+      "answer": "井上雄彦",
+      "explanation": "井上雄彦于 1990 年开始连载《灌篮高手》，1996 年完结，是全球影响力最大的篮球漫画之一。"
+    },
+    {
+      "id": "anime-0002",
+      "topic": "经典作品",
+      "difficulty": 1,
+      "type": "single",
+      "stem": "《新世纪福音战士》（EVA）的创作者与导演是谁？",
+      "options": ["庵野秀明", "宫崎骏", "押井守", "今敏"],
+      "answer": "庵野秀明",
+      "explanation": "庵野秀明担任原作、导演与脚本，作品由 Gainax 制作，于 1995 年开播。"
+    },
+    {
+      "id": "anime-0003",
+      "topic": "经典作品",
+      "difficulty": 2,
+      "type": "single",
+      "stem": "《进击的巨人》的作者是谁？",
+      "options": ["谏山创", "青山刚昌", "久保带人", "富坚义博"],
+      "answer": "谏山创",
+      "explanation": "谏山创的《进击的巨人》2009 年开始连载，2013 年改编为电视动画。"
+    },
+    {
+      "id": "anime-0004",
+      "topic": "经典作品",
+      "difficulty": 2,
+      "type": "single",
+      "stem": "《鬼灭之刃》最早于哪一年开始连载？",
+      "options": ["2016 年", "2014 年", "2018 年", "2020 年"],
+      "answer": "2016 年",
+      "explanation": "吾峠呼世晴的《鬼灭之刃》2016 年在《周刊少年 Jump》开始连载，2019 年动画化。"
+    },
+    {
+      "id": "anime-0005",
+      "topic": "经典作品",
+      "difficulty": 1,
+      "type": "judge",
+      "stem": "《千与千寻》是宫崎骏执导的动画电影。",
+      "options": ["正确", "错误"],
+      "answer": "正确",
+      "explanation": "《千与千寻》2001 年上映，2003 年获得奥斯卡最佳动画长片奖，是首获此奖的非英语作品。"
+    },
+    {
+      "id": "anime-0006",
+      "topic": "经典作品",
+      "difficulty": 1,
+      "type": "single",
+      "stem": "宫崎骏 1988 年上映的经典动画《龙猫》由哪家工作室出品？",
+      "options": ["吉卜力工作室", "东映动画", "Madhouse", "SUNRISE"],
+      "answer": "吉卜力工作室",
+      "explanation": "《龙猫》是吉卜力工作室成立后不久的作品，1988 年由东映动画发行。"
+    },
+    {
+      "id": "anime-0007",
+      "topic": "经典作品",
+      "difficulty": 2,
+      "type": "single",
+      "stem": "《钢之炼金术师》（FA）的原作者是谁？",
+      "options": ["荒川弘", "车畑正", "冨樫义博", "米山舞"],
+      "answer": "荒川弘",
+      "explanation": "荒川弘的《钢之炼金术师》2001 年起连载，以「炼金术等于等价交换」的主题著称。"
+    },
+    {
+      "id": "anime-0008",
+      "topic": "经典作品",
+      "difficulty": 2,
+      "type": "judge",
+      "stem": "《咒术回战》的动画制作公司是 MAPPA。",
+      "options": ["正确", "错误"],
+      "answer": "正确",
+      "explanation": "《咒术回战》TV 动画由 MAPPA 制作，于 2020 年 10 月首播。"
+    },
+    {
+      "id": "anime-0009",
+      "topic": "经典作品",
+      "difficulty": 2,
+      "type": "single",
+      "stem": "《咒术回战》的原作作者是谁？",
+      "options": ["芥见下下", "岸本齐史", "谏山创", "白井健二"],
+      "answer": "芥见下下",
+      "explanation": "芥见下下于 2018 年开始连载《咒术回战》，作品以「咒灵」与「咒术师」为世界观核心。"
+    },
+    {
+      "id": "anime-0010",
+      "topic": "经典作品",
+      "difficulty": 3,
+      "type": "multi",
+      "stem": "以下哪些是吉卜力工作室的动画电影？",
+      "options": ["《千与千寻》", "《哈尔的移动城堡》", "《幽灵公主》", "《铃芽之旅》"],
+      "answer": ["《千与千寻》", "《哈尔的移动城堡》", "《幽灵公主》"],
+      "explanation": "《铃芽之旅》是新海诚执导、CoMix Wave Films 制作的，与吉卜力无关。"
+    },
+    {
+      "id": "anime-0011",
+      "topic": "经典作品",
+      "difficulty": 2,
+      "type": "single",
+      "stem": "《Code Geass 反叛的鲁路修》的主角鲁路修的全名是？",
+      "options": ["鲁路修·V·不列颠尼亚", "鲁路修·兰佩鲁基", "鲁路修·兰克", "鲁路修·阿斯拉"],
+      "answer": "鲁路修·V·不列颠尼亚",
+      "explanation": "主角继承不列颠尼亚皇位并以「Zero」之名反抗帝国，Geass 之力是其核心能力设定。"
+    },
+    {
+      "id": "anime-0012",
+      "topic": "经典作品",
+      "difficulty": 3,
+      "type": "single",
+      "stem": "「JOJO」这个词在《JOJO的奇妙冒险》中最初是怎么来的？",
+      "options": [
+        "作者少年时期投稿用的怪名字家族",
+        "主角的真实姓名",
+        "意大利语的日常问候",
+        "漫画出版社的招牌"
+      ],
+      "answer": "作者少年时期投稿用的怪名字家族",
+      "explanation": "荒木飞吕彦少年时投稿用的「JOJO 家族」成为主角家族的设定，作品标题也由此而来。"
+    },
+    {
+      "id": "anime-0013",
+      "topic": "经典作品",
+      "difficulty": 3,
+      "type": "single",
+      "stem": "《EVA》中「使徒」对应的英文 Evangelion，在作品里更接近哪个含义？",
+      "options": ["福音", "化身", "天使军", "电子生命"],
+      "answer": "福音",
+      "explanation": "「Evangelion」源自希腊语 euangelion，意为「福音」，作品将其转写为入侵人类的未知存在。"
+    },
+    {
+      "id": "anime-0014",
+      "topic": "作者与工作室",
+      "difficulty": 1,
+      "type": "single",
+      "stem": "《海贼王》（ONE PIECE）的作者是谁？",
+      "options": ["尾田荣一郎", "岸本齐史", "车畑正", "古畑春一"],
+      "answer": "尾田荣一郎",
+      "explanation": "尾田荣一郎自 1997 年开始连载《海贼王》，是全球销量最高的漫画系列之一。"
+    },
+    {
+      "id": "anime-0015",
+      "topic": "作者与工作室",
+      "difficulty": 2,
+      "type": "single",
+      "stem": "《火影忍者》的作者是谁？",
+      "options": ["岸本齐史", "尾田荣一郎", "谏山创", "久保带人"],
+      "answer": "岸本齐史",
+      "explanation": "岸本齐史于 1999 年开始连载《火影忍者》，2020 年完结。"
+    },
+    {
+      "id": "anime-0016",
+      "topic": "作者与工作室",
+      "difficulty": 2,
+      "type": "single",
+      "stem": "《轻音少女》的原作者是谁？",
+      "options": ["平泽郁", "深泽秀一", "白井健二", "水岛努"],
+      "answer": "平泽郁",
+      "explanation": "平泽郁的《轻音少女》2007 年开始连载，是「日常系」动漫的代表作。"
+    },
+    {
+      "id": "anime-0017",
+      "topic": "作者与工作室",
+      "difficulty": 3,
+      "type": "single",
+      "stem": "被称为「日本动画之父」并创办了 Mushi Production 的动画家是？",
+      "options": ["手冢治虫", "宫崎骏", "大藤信郎", "出崎统"],
+      "answer": "手冢治虫",
+      "explanation": "手冢治虫于 1961 年创办虫制作，创作了《铁臂阿童木》《忍者小灵精》等经典。"
+    },
+    {
+      "id": "anime-0018",
+      "topic": "制作公司",
+      "difficulty": 1,
+      "type": "single",
+      "stem": "吉卜力工作室（Studio Ghibli）成立于哪一年？",
+      "options": ["1985 年", "1975 年", "1990 年", "2000 年"],
+      "answer": "1985 年",
+      "explanation": "吉卜力工作室由宫崎骏、高畑勋与制片人铃木敏夫于 1985 年共同创立。"
+    },
+    {
+      "id": "anime-0019",
+      "topic": "制作公司",
+      "difficulty": 2,
+      "type": "single",
+      "stem": "「东映动画」的前身是哪家公司？",
+      "options": ["东映视频", "东京动画", "日本动画株式会社", "虫制作"],
+      "answer": "东映视频",
+      "explanation": "东映动画于 1956 年从东映视频的动画部门独立出来，是日本历史最悠久的动画公司之一。"
+    },
+    {
+      "id": "anime-0020",
+      "topic": "制作公司",
+      "difficulty": 1,
+      "type": "single",
+      "stem": "下列哪部作品的动画制作是 ufotable 完成的？",
+      "options": ["《Fate/stay night》", "《进击的巨人》", "《灌篮高手》", "《钢之炼金术师》"],
+      "answer": "《Fate/stay night》",
+      "explanation": "ufotable 以《Fate》系列、《鬼灭之刃》与《刀剑神域》闻名，是近年最活跃的动画工作室之一。"
+    },
+    {
+      "id": "anime-0021",
+      "topic": "制作公司",
+      "difficulty": 2,
+      "type": "single",
+      "stem": "《EVA》的原作动画工作室是？",
+      "options": ["Gainax", "吉卜力工作室", "Madhouse", "Production I.G"],
+      "answer": "Gainax",
+      "explanation": "GAINAX 成立于 1984 年，《EVA》是其最著名的作品，1997 年后因经营问题大幅缩减活动。"
+    },
+    {
+      "id": "anime-0022",
+      "topic": "动画史",
+      "difficulty": 1,
+      "type": "single",
+      "stem": "日本第一部彩色动画电影《白蛇传》于哪一年上映？",
+      "options": ["1958 年", "1952 年", "1960 年", "1945 年"],
+      "answer": "1958 年",
+      "explanation": "东映动画的《白蛇传》1958 年上映，采用传统赛璐珞作画，是日本彩色动画的开端。"
+    },
+    {
+      "id": "anime-0023",
+      "topic": "动画史",
+      "difficulty": 2,
+      "type": "single",
+      "stem": "《铁臂阿童木》在哪一年于富士电视台首播，被视为日本电视动画时代的开端？",
+      "options": ["1963 年", "1958 年", "1967 年", "1970 年"],
+      "answer": "1963 年",
+      "explanation": "1963 年 1 月《铁臂阿童木》开播，周五晚 7 档的模式直接催生了「动画王」现象。"
+    },
+    {
+      "id": "anime-0024",
+      "topic": "动画史",
+      "difficulty": 2,
+      "type": "single",
+      "stem": "手冢治虫于哪一年创办虫制作（Mushi Production）？",
+      "options": ["1961 年", "1958 年", "1965 年", "1970 年"],
+      "answer": "1961 年",
+      "explanation": "1961 年手冢治虫在.access 成立虫制作，次年《铁臂阿童木》动画化，奠定电视动画工业化基础。"
+    },
+    {
+      "id": "anime-0025",
+      "topic": "动画史",
+      "difficulty": 3,
+      "type": "single",
+      "stem": "日本动画行业把大量作画环节委托给韩国、东南亚等海外工作室的做法，通常称为？",
+      "options": ["下请", "分集", "作画会议", "原画"],
+      "answer": "下请",
+      "explanation": "「下请」指把原画、演出等工序委托给外部公司，是日本动画产业链的特色分工。"
+    },
+    {
+      "id": "anime-0026",
+      "topic": "动画史",
+      "difficulty": 2,
+      "type": "judge",
+      "stem": "「赛璐珞动画」是以赛璐珞胶片作为画材的传统动画工艺。",
+      "options": ["正确", "错误"],
+      "answer": "正确",
+      "explanation": "赛璐珞作画在透明赛璐珞片上绘制，背景另画在赛璐珞上，逐格拍摄合成，现代多改用数字作画。"
+    },
+    {
+      "id": "anime-0027",
+      "topic": "动画史",
+      "difficulty": 3,
+      "type": "single",
+      "stem": "「吉卜力」这一名称来自宫崎骏电影《天空之城》中一架飞机的名字，这个名字的词源是？",
+      "options": [
+        "撒哈拉沙漠的一种热风",
+        "意大利语中的飞行器",
+        "希腊神话中的 winged horse",
+        "日语中的「给力」"
+      ],
+      "answer": "撒哈拉沙漠的一种热风",
+      "explanation": "Ghibli 源自撒哈拉沙漠的热风，出现在《天空之城》 aircraft「Ghibli」上，后被用作工作室名。"
+    },
+    {
+      "id": "anime-0028",
+      "topic": "动画史",
+      "difficulty": 2,
+      "type": "single",
+      "stem": "《EVA》电视版播出时共播出多少集？",
+      "options": ["26 集", "24 集", "25 集", "30 集"],
+      "answer": "26 集",
+      "explanation": "《EVA》电视版共 26 集，1995 年 10 月至 1997 年 7 月播出，后期因预算与档期问题制作明显仓促。"
+    },
+    {
+      "id": "anime-0029",
+      "topic": "动画史",
+      "difficulty": 3,
+      "type": "single",
+      "stem": "「外包动画」与「独立制作」相比，日本电视动画常见的单集时长约为？",
+      "options": ["24 分钟", "45 分钟", "12 分钟", "90 分钟"],
+      "answer": "24 分钟",
+      "explanation": "日本 TV 动画多为 24 分钟档（去掉广告约 22 分钟），与 30 分钟档的欧美动画不同。"
+    },
+    {
+      "id": "anime-0030",
+      "topic": "声优",
+      "difficulty": 1,
+      "type": "single",
+      "stem": "「声优」在日语中写作？",
+      "options": ["声優", "声优", "配音员", "せいえい"],
+      "answer": "声優",
+      "explanation": "「声優」是日语对配音演员的称呼，中文直接借用为「声优」。"
+    },
+    {
+      "id": "anime-0031",
+      "topic": "声优",
+      "difficulty": 2,
+      "type": "single",
+      "stem": "在《EVA》中为碇真嗣配音的知名声优是谁？",
+      "options": ["宫村峻哉", "松田洋介", "三石琴乃", "花泽香菜"],
+      "answer": "宫村峻哉",
+      "explanation": "宫村峻哉以《EVA》碇真嗣、《进击的巨人》艾伦等角色广为人知。"
+    },
+    {
+      "id": "anime-0032",
+      "topic": "声优",
+      "difficulty": 2,
+      "type": "single",
+      "stem": "为《咒术回战》主角「虎杖悠仁」配音的声优是谁？",
+      "options": ["梶裕贵", "宫村峻哉", "松田洋介", "冈本信彦"],
+      "answer": "梶裕贵",
+      "explanation": "梶裕贵是日本配音演员与歌手，代表角色还有《进击的巨人》艾伦·耶格尔。"
+    },
+    {
+      "id": "anime-0033",
+      "topic": "声优",
+      "difficulty": 3,
+      "type": "single",
+      "stem": "下列哪位声优同时以配音演员与歌手身份知名？",
+      "options": ["水树奈々", "新垣结衣", "苍井优", "竹达彩奈"],
+      "answer": "水树奈々",
+      "explanation": "水树奈々既是知名声优（《魔法少女小圆》美树沙耶）也是歌手，这种双重身份在业内并不罕见。"
+    },
+    {
+      "id": "anime-0034",
+      "topic": "声优",
+      "difficulty": 2,
+      "type": "judge",
+      "stem": "在日本动画的常见分工中，声优通常同时负责角色台词与相关歌唱部分。",
+      "options": ["正确", "错误"],
+      "answer": "正确",
+      "explanation": "角色歌与主题曲多由本角色声优演唱，形成「声优演、唱一体」的传统。"
+    },
+    {
+      "id": "anime-0035",
+      "topic": "声优",
+      "difficulty": 3,
+      "type": "single",
+      "stem": "日本动画的「casting 试音（声優オーディション）」通常为角色挑选什么？",
+      "options": ["配音演员（声优）", "作画原画师", "音乐作曲家", "作品的投资方"],
+      "answer": "配音演员（声优）",
+      "explanation": "试音会由导演与制作团队听取候选声优的试读，选定角色配音者，是动画制作的重要一环。"
+    },
+    {
+      "id": "anime-0036",
+      "topic": "周边文化",
+      "difficulty": 1,
+      "type": "single",
+      "stem": "中文语境中的「周边」指的是？",
+      "options": ["与作品相关的衍生商品", "动画的制作流程", "原画素材的统称", "声优的经纪合同"],
+      "answer": "与作品相关的衍生商品",
+      "explanation": "周边涵盖手办、徽章、立牌、卡牌等，是动漫产业最重要的变现环节之一。"
+    },
+    {
+      "id": "anime-0037",
+      "topic": "周边文化",
+      "difficulty": 2,
+      "type": "single",
+      "stem": "「扭蛋（gashapon）」文化最初源自哪个国家？",
+      "options": ["日本", "美国", "德国", "中国"],
+      "answer": "日本",
+      "explanation": "扭蛋机起源于日本，是把随机商品装进胶囊球售卖的机制，后来带动了「扭蛋文化」。"
+    },
+    {
+      "id": "anime-0038",
+      "topic": "周边文化",
+      "difficulty": 2,
+      "type": "judge",
+      "stem": "「痛包」指的是把角色徽章、吧唧等装饰在包上的爱好行为。",
+      "options": ["正确", "错误"],
+      "answer": "正确",
+      "explanation": "「痛」来自日文「推し」的自嘲用法，指粉丝把自己喜欢的作品元素展示在随身物品上。"
+    },
+    {
+      "id": "anime-0039",
+      "topic": "周边文化",
+      "difficulty": 3,
+      "type": "single",
+      "stem": "「同人志」指的是？",
+      "options": [
+        "爱好者自发创作并制作的非商业作品",
+        "官方出版的漫画单行本",
+        "动画的蓝光碟片",
+        "声优的写真集"
+      ],
+      "answer": "爱好者自发创作并制作的非商业作品",
+      "explanation": "同人志强调自发性与非营利性，Comic Market（漫展）是其主要交易场所。"
+    },
+    {
+      "id": "anime-0040",
+      "topic": "周边文化",
+      "difficulty": 2,
+      "type": "single",
+      "stem": "《EVA》中广为流传的「人类补完计划」在作品设定中是什么？",
+      "options": [
+        "使徒入侵后人类为自我进化而进行的计划",
+        "一项经济复苏政策",
+        "一款同名的电子游戏",
+        "军事演习的代号"
+      ],
+      "answer": "使徒入侵后人类为自我进化而进行的计划",
+      "explanation": "补完计划由人类与使徒融合、进而实现物种进化的设定，是《EVA》世界观的核心冲突。"
+    }
+  ]
+}
