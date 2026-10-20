@@ -66,8 +66,7 @@ lib/content/ fingerprint · loader · server-bank
 content/domains/  12 域元数据 + 12 个题库 JSON
 scripts/     validate-content.ts
 __tests__/   单元测试（单星 glob）
-docs/        PRD · 架构 · 业务规则 · API · 内容 · 测试 · 设计 · 部署 · 决策
-agents/      产品生产团队章程
+docs/        PRD · 架构 · 业务规则 · API · 内容 · 测试 · 设计 · 部署 · 团队 · 调研
 ```
 
 ---
@@ -103,7 +102,7 @@ npm run format:check   # prettier --check .
 | 视觉 / token / 组件 / 文案 | [`docs/design/ui-system.md`](docs/design/ui-system.md) |
 | 产品需求 / 玩法规则 / 验收标准 | [`docs/PRD.md`](docs/PRD.md) |
 | 部署 / 联机隧道 / 双轨形态 | [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) |
-| 团队角色 / 流水线 / 交付规范 | [`agents/TEAM.md`](agents/TEAM.md) |
+| 团队角色 / 流水线 / 交付规范 | [`docs/TEAM.md`](docs/TEAM.md) |
 
 ---
 
@@ -115,4 +114,9 @@ npm run format:check   # prettier --check .
 4. **有外部状态的模块**（`lib/realtime.ts`、`lib/store/room.ts`）用 `globalThis` 单例，
    测试里**必须**调用重置钩子（`__resetRoomsForTest()` / `__resetSubscribersForTest()`）。
 5. **文档分层** —— 新增内容先判断它属于 `README.md`（人类）、`AGENTS.md`（AI）还是 `docs/`（长文）。
-6. **重大决策**往 `docs/decisions/` 加带日期的快照，**不回改**旧文件。
+   `docs/` 下再分两类：**活文档**（PRD / 架构 / 规则 / API / 内容 / 测试 / 设计 / 部署 / 团队章程）
+   与**带日期的一次性快照**（`docs/research/` 调研报告）。
+6. **重大决策不单独建档** —— 决策的**结论**写进对应主题的活文档（玩法进 PRD、计分进 GAME-RULES、
+   架构进 ARCHITECTURE、部署进 DEPLOYMENT），**理由**写在该文档的决策小节里。
+   原始调研依据留在 `docs/research/`。**不要**为决策新建独立文档 —— 同一个事实有两个真相来源，
+   迟早会打架。

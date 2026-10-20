@@ -175,6 +175,7 @@ curl -X POST https://<域名>/api/ai/generate \
 ## 五、备份与回滚
 
 - 题库是纯 JSON，版本控制即备份；
-- `docs/decisions/*.md` 是归档快照，**不回改**；
+- `docs/` 下是**活文档**（PRD / 架构 / 规则 / API / 内容 / 测试 / 设计 / 部署 / 团队章程）与
+  **带日期的调研快照**（`docs/research/`），二者都随项目演进更新 —— 决策写在对应主题文档的决策小节里，不单独建档；
 - 云轨回滚：平台侧切回上一个部署版本即可（无状态，无需数据迁移）；
 - 本地轨回滚：`git checkout` 到旧 tag 后重新 `npm run build && npm start`。

@@ -138,7 +138,7 @@ submit(option);                            // ✅ 不再 setTimeout
 6. 打开**多选题** → 勾选后点「确认作答」→ 正确判定（全对才算对）；
 7. 打开**判断题** → 点选项 → 正确判定。
 
-> 自动化脚本（Playwright）尚未接入 CI —— 这是**已知缺口**，见 `docs/decisions/`。
+> 自动化脚本（Playwright）尚未接入 CI —— 这是**已知缺口**，已列入 [`docs/PRD.md`](PRD.md) §11.2 后续路线。
 
 ---
 

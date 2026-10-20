@@ -133,7 +133,8 @@ npm run format:check     # Prettier
 | [`docs/TESTING.md`](docs/TESTING.md) | 开发 | 测试约定、重置钩子、常见陷阱 |
 | [`docs/design/ui-system.md`](docs/design/ui-system.md) | 设计 | 「星轨」视觉系统：token、组件、动效、文案规范 |
 | [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) | 运维 | 双轨部署手册 |
-| [`agents/TEAM.md`](agents/TEAM.md) | 全员 | 产品生产团队的角色与流水线 |
+| [`docs/TEAM.md`](docs/TEAM.md) | 全员 | 产品生产团队的角色与流水线 |
+| [`docs/research/`](docs/research/) | 产品 | 竞品拆解与差异化机制候选（带日期的调研快照） |
 | [`AGENTS.md`](AGENTS.md) | AI | 架构红线、技术栈、极简命令 |
 
 ---
