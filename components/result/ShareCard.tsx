@@ -16,6 +16,12 @@ interface ShareCardProps {
   stars: number;
   maxCombo: number;
   streak: number;
+  /** PK 码（可选）。同题 PK 的成绩卡会带上它，方便双方核对。 */
+  pkCode?: string;
+  /** 逐题结果（可选）。渲染成「同题方块网格」—— 5 格 = 5 题。 */
+  cells?: { domain: string; correct: boolean }[];
+  /** 副标题（可选）。例如"同题 PK"。 */
+  label?: string;
 }
 
 const W = 1200;
@@ -27,6 +33,13 @@ const H = 630;
  * 不引第三方图表/图片库：绘制逻辑简单，Canvas 原生足够。
  * 分享链路：优先 `navigator.share`（移动端可分享文件），
  * 降级为「长按图片保存」或「下载 PNG」。
+ *
+ * ## 同题方块网格
+ *
+ * 借鉴 Wordle 的传播结构：**只给结果，不剧透**。
+ * 5 个方块 = 5 道题，每格用该题所属**领域的主题色**填充（答对），
+ * 答错则暗红。它是"同题 PK"的对账凭证 —— 两个人看彼此的卡片，
+ * 能逐题比出谁在哪个领域更强。
  */
 export function ShareCard(props: ShareCardProps) {
   const [dataUrl, setDataUrl] = useState<string | null>(null);
@@ -42,33 +55,34 @@ export function ShareCard(props: ShareCardProps) {
 
     // 背景
     const bg = ctx.createLinearGradient(0, 0, W, H);
-    bg.addColorStop(0, "#0f1115");
-    bg.addColorStop(1, "#1c2029");
+    bg.addColorStop(0, "#080A11");
+    bg.addColorStop(1, "#141826");
     ctx.fillStyle = bg;
     ctx.fillRect(0, 0, W, H);
 
-    // 顶部强调条
+    // 顶部强调条：用当日第一个领域的真实主题色
+    const leadColor = DOMAINS.find((m) => m.id === props.domains[0])?.color ?? "#FF6A2B";
     const accent = ctx.createLinearGradient(0, 0, W, 0);
-    accent.addColorStop(0, "#FF5C1A");
-    accent.addColorStop(1, "#FF7A45");
+    accent.addColorStop(0, leadColor);
+    accent.addColorStop(1, "#FF9257");
     ctx.fillStyle = accent;
     ctx.fillRect(0, 0, W, 8);
 
     // 标题
-    ctx.fillStyle = "#e8eaed";
+    ctx.fillStyle = "#EEF1F8";
     ctx.font = "bold 54px system-ui, sans-serif";
-    ctx.fillText(`${props.emoji} 通识局 · 今日挑战`, 72, 108);
+    ctx.fillText(`${props.emoji} 通识局${props.label ? " · " + props.label : ""}`, 72, 108);
 
-    ctx.fillStyle = "#8b93a1";
+    ctx.fillStyle = "#99A3BD";
     ctx.font = "30px system-ui, sans-serif";
     ctx.fillText(props.date, 72, 158);
 
     // 分数
-    ctx.fillStyle = "#FF5C1A";
+    ctx.fillStyle = "#FF6A2B";
     ctx.font = "bold 150px system-ui, sans-serif";
     ctx.fillText(String(props.score), 68, 320);
 
-    ctx.fillStyle = "#8b93a1";
+    ctx.fillStyle = "#99A3BD";
     ctx.font = "30px system-ui, sans-serif";
     ctx.fillText("分", 72 + ctx.measureText(String(props.score)).width + 24, 320);
 
@@ -78,24 +92,31 @@ export function ShareCard(props: ShareCardProps) {
 
     // 右侧信息
     const infoX = 620;
-    ctx.fillStyle = "#e8eaed";
+    ctx.fillStyle = "#EEF1F8";
     ctx.font = "34px system-ui, sans-serif";
     ctx.fillText(`答对 ${props.correct} / ${props.total} 题`, infoX, 210);
 
     if (props.maxCombo >= 2) {
-      ctx.fillStyle = "#f1c40f";
+      ctx.fillStyle = "#FFC24B";
       ctx.font = "34px system-ui, sans-serif";
       ctx.fillText(`🔥 最高 ${props.maxCombo} 连击`, infoX, 262);
     }
     if (props.streak > 0) {
-      ctx.fillStyle = "#f1c40f";
+      ctx.fillStyle = "#FFC24B";
       ctx.font = "34px system-ui, sans-serif";
       ctx.fillText(`🔥 连续 ${props.streak} 天`, infoX, 314);
     }
 
+    // PK 码：双方对账的凭据
+    if (props.pkCode) {
+      ctx.fillStyle = "#5FA8FF";
+      ctx.font = "bold 38px system-ui, sans-serif";
+      ctx.fillText(`PK ${props.pkCode}`, infoX, 366);
+    }
+
     // 领域标签
     let x = infoX;
-    const y = 396;
+    const y = props.pkCode ? 452 : 396;
     ctx.font = "26px system-ui, sans-serif";
     for (const d of props.domains) {
       const meta = DOMAINS.find((m) => m.id === d);
@@ -111,10 +132,36 @@ export function ShareCard(props: ShareCardProps) {
       x += w + 12;
     }
 
+    // 同题方块网格：5 格 = 5 题
+    if (props.cells && props.cells.length > 0) {
+      const size = 62;
+      const gap = 14;
+      const startX = 72;
+      const gridY = 470;
+      ctx.font = "22px system-ui, sans-serif";
+      props.cells.forEach((cell, i) => {
+        const cx = startX + i * (size + gap);
+        const color = DOMAINS.find((m) => m.id === cell.domain)?.color ?? "#99A3BD";
+        ctx.fillStyle = cell.correct ? color : "rgba(251,113,133,.35)";
+        roundRect(ctx, cx, gridY, size, size, 12);
+        ctx.fill();
+        if (!cell.correct) {
+          ctx.strokeStyle = "rgba(251,113,133,.8)";
+          ctx.lineWidth = 2;
+          roundRect(ctx, cx, gridY, size, size, 12);
+          ctx.stroke();
+        }
+      });
+    }
+
     // 页脚
-    ctx.fillStyle = "#5b6472";
+    ctx.fillStyle = "#66708C";
     ctx.font = "26px system-ui, sans-serif";
-    ctx.fillText("每天三域，各显所长 · tongshi-ju", 72, H - 56);
+    ctx.fillText(
+      props.pkCode ? "同一个 PK 码 · 同一份题 · tongshi-ju" : "每天三域，各显所长 · tongshi-ju",
+      72,
+      H - 56
+    );
 
     return canvas.toDataURL("image/png");
   }, [props]);

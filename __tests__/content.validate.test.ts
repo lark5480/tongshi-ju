@@ -46,11 +46,11 @@ test("首批 6 个领域题量均 ≥ 40", () => {
   }
 });
 
-test("批次二/三的域目前为空（骨架）", () => {
-  for (const d of DOMAINS.filter((x) => x.batch > 1)) {
+test("全部 12 个领域：题量 ≥ 40 且已上线", () => {
+  for (const d of DOMAINS) {
     const f = files.find((x) => x.file === `${d.id}.json`)!;
-    assert.equal(f.data.questions.length, 0);
-    assert.equal(d.enabled, false, `${d.id} 未补题前不应标记为已上线`);
+    assert.ok(f.data.questions.length >= 40, `${d.id} 题量仅 ${f.data.questions.length}`);
+    assert.equal(d.enabled, true, `${d.id} 应标记为已上线`);
   }
 });
 

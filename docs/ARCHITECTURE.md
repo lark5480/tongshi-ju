@@ -1,0 +1,196 @@
+# 《通识局》架构说明
+
+> 业务规则见 [`GAME-RULES.md`](GAME-RULES.md)，API 见 [`API.md`](API.md)。
+> 不可破坏的红线写在 [`../AGENTS.md`](../AGENTS.md)。
+
+---
+
+## 1. 全局分层
+
+```
+┌─────────────────────────────────────────────────────────┐
+│ app/            页面（App Router）+ API 路由            │
+├─────────────────────────────────────────────────────────┤
+│ hooks/          客户端状态编排（useDailyChallenge 等）   │
+├─────────────────────────────────────────────────────────┤
+│ lib/engine/     纯函数：客户端与服务端共用，无 IO         │
+│ lib/store/      房间状态机（服务端内存）+ 入参校验       │
+│ lib/ai/         AI provider / prompt / 10 步校验链      │
+│ lib/content/    指纹 / 题库加载 / 服务端题库             │
+│ lib/storage.ts  localStorage 安全封装（客户端）           │
+├─────────────────────────────────────────────────────────┤
+│ content/domains/  12 域元数据 + 12 个题库 JSON           │
+└─────────────────────────────────────────────────────────┘
+```
+
+**`lib/engine/*` 是纯函数层** —— 不碰 IO、不碰时间、不碰全局状态。
+这一层是"客户端与服务端跑同一份代码"的前提，也是每日挑战无状态的基础。
+
+---
+
+## 2. 每日挑战的无状态链路
+
+```
+客户端                                  服务端（可选，仅为一致性）
+  │                                          │
+  ├─ dayKey()  ← lib/engine/date.ts           │
+  ├─ resolveDailyDomains() ← blindbox.ts      │
+  ├─ dailySeed() / buildDailySet() ← daily.ts │
+  │                                          │
+  └─ 抽题、答题、计分、结算（全部本地）        │
+```
+
+**没有服务端参与**。因此：
+
+- 可以部署到任意 Serverless / 静态托管；
+- 同一天同领域组合 → 全网同一份题（天然可比、可分享）；
+- 客户端本地计时只用于**显示**。每日挑战没有排行榜、不做服务端结算，
+  所以「改本地时间刷分」没有收益。**duel 才是服务端权威计时。**
+
+---
+
+## 3. 对战房间状态机
+
+### 3.1 相位
+
+```
+lobby → countdown → question → feedback → (下一回合) → finished
+```
+
+推进采用「**惰性 + 定时器**」双保险：
+
+- `syncRoomPhase()` 在**读快照 / 提交答案 / 定时器回调**三处调用；
+- Serverless 定时器丢失时，靠下一次调用收敛。
+
+> 改相位机时**别只依赖定时器**。
+
+### 3.2 房间态与对外态
+
+| 类型 | key | 用途 |
+|---|---|---|
+| `RoomState` | `playerId` | 服务端内部态（**含凭证**） |
+| `RoomSnapshot` | `slot` | 对外态（**脱敏**） |
+| `RoundRecord` | `slot` | 对外态 |
+
+`RoomState.questions` 只存 `QuestionMeta`（无答案、无解析），
+答案与解析在回合结算（`round_result`）时才下发。
+
+### 3.3 存储位置
+
+房间态在**进程内存**（`lib/store/room.ts`，`globalThis` 单例）。
+
+> ⚠️ **duel 不能上 Serverless** —— 多实例内存不共享，房间状态会撕裂。
+> 必须走本地隧道（`play-online.bat`）。
+
+### 3.4 过期回收
+
+房间按 `lastActivity` 判定过期并清理；订阅者按 `STREAM_MAX_AGE_MS` 判定僵尸并回收。
+
+---
+
+## 4. SSE 实时通道
+
+| 机制 | 参数 | 不做会怎样 |
+|---|---|---|
+| 心跳 ping | 25s | 中间代理掐断连接 |
+| 主动轮换 rotate | 100s | 平台 120s 硬杀 → `cancel()` 不触发 → 僵尸订阅占满配额 → **重连永远 429** |
+| 僵尸回收 | 130s 判超龄 | 同上 |
+
+`edgeone.json` 的 `nodeFunctionsConfig.maxDuration = 120` **必须保留**（CI 会检查）。
+它与 `STREAM_MAX_AGE_MS = 100_000` 配套：服务端在平台硬杀前 20s 主动优雅关闭，
+把「平台硬杀」变成「清理必然执行」。
+
+### 4.1 帧格式
+
+```
+event: <type>
+data: <json>
+
+```
+
+业务事件的 `event` 名与 `type` 一致；`rotate` 是**独立**事件名（不进入 `RoomEvent` 联合类型），
+用于通知客户端立即静默重连；心跳是注释行 `: ping`，客户端不触发 `message`。
+
+实现：`lib/events.ts` · `lib/realtime.ts`
+
+### 4.2 订阅表
+
+`lib/realtime.ts` 用 `globalThis` 单例存订阅表。
+**Serverless 多实例不共享** —— 这也是 duel 只能本地跑的原因之一。
+
+---
+
+## 5. 凭证与安全
+
+| 机制 | 说明 |
+|---|---|
+| `playerId` | 所有写操作的唯一凭证，只在创建/加入的**私有响应**下发 |
+| `slot` | 对外一律用座位号（`0`=房主，`1`=访客），绝不暴露 `playerId` |
+| Zod 剥离 | 提交体中的未知字段被剥离，客户端伪造 `elapsed` 无效 |
+| 昵称白名单 | `^[\u4e00-\u9fa5A-Za-z0-9_·\- ]+$`，1–12 字符 |
+| 房间码 | `^[A-HJ-NP-Z2-9]{4,8}$`，排除易混字符 `I/O/0/1` |
+| 限流 | `lib/rate-limit.ts` |
+
+> 一旦 `playerId` 泄漏进快照或广播，任何订阅者（含第三方观战者）都能冒充该玩家
+> 提交答案、认输、发起再来一局。
+
+---
+
+## 6. 内容管线
+
+```
+content/domains/<id>.json  （磁盘紧凑格式）
+        │  lib/content/loader.ts 注入 domain / origin / fingerprint
+        ▼
+Question[]  （运行时完整格式）
+```
+
+**磁盘上不存** `domain` / `origin` / `fingerprint` 三个字段 ——
+这样「改了题干忘了更新指纹」这类脏数据**整类消失**。
+
+指纹：题干归一化（去空白去标点、全角转半角、英文小写）后 FNV-1a 32 位哈希。
+
+实现：`lib/content/fingerprint.ts` · `lib/content/loader.ts`
+
+---
+
+## 7. AI 出题
+
+```
+provider（OpenAI 兼容 / Ollama）→ prompt → 10 步校验链 → 待审池
+```
+
+**10 步**：JSON → schema → domain/topic → 难度 → 答案命中选项 → 歧义句式 →
+解析长度 → 指纹查重 → 近似查重（Jaccard > 0.85）→ 敏感词。
+
+- 未配置 provider → **503**，主链路完全不受影响；
+- 设置 `AI_ADMIN_TOKEN` 时校验 `x-ai-admin-token`；未设置时仅 `NODE_ENV=development` 可调；
+- **AI 题永不参与每日挑战**（破坏确定性与排行榜公平）。
+
+---
+
+## 8. 部署形态（双轨）
+
+| 轨道 | 承载 | 平台 | 状态性 |
+|---|---|---|---|
+| **云轨** | 每日挑战、错题本、星图、战绩、影子、段位 | EdgeOne Pages（Node Functions） | 完全无状态 |
+| **本地轨** | 同步抢答 duel | `play-online.bat` + cloudflared 隧道 | 房间态在进程内存 |
+
+详见 [`DEPLOYMENT.md`](DEPLOYMENT.md)。
+
+---
+
+## 9. 已知限制
+
+| # | 限制 | 说明 |
+|---|---|---|
+| 1 | **duel 不能上 Serverless** | 房间态在进程内存，多实例不共享 → 状态撕裂。必须走本地隧道。 |
+| 2 | **EdgeOne Node Functions 120s 硬上限** | SSE 必须主动轮换（100s）后再优雅关闭。 |
+| 3 | **Edge Functions（V8）不支持 WebSocket** | 本项目实时用 SSE；Edge Functions 的 CPU 限 200ms、KV 最终一致性 ≤60s，都不适合实时。 |
+| 4 | **AI 出题接口默认关闭** | 需配 provider + `AI_ADMIN_TOKEN`，否则 503。 |
+| 5 | **题库深度** | 每域 40–53 题，每日挑战（5 题/天）在单域上会重复。引擎会兜底重复而非空面。 |
+| 6 | **无账号体系** | 档案/错题/战绩/影子/段位全在 localStorage，换浏览器即丢；清缓存即丢。 |
+| 7 | **npm 12 会拦 `esbuild` / `unrs-resolver` 的 install scripts** | 已实测 `tsx` 与 `node --import tsx --test` 正常工作，不影响工具链。 |
+| 8 | **删除受会话 workspace 边界限制** | `rm --` 只允许删**会话 workspace 内**的目标；目标在外部时改用同一个受信任启动器 `mavis-trash`。**绝不要**用永久删除命令。 |
+| 9 | **删目录前要连空目录一起清点** | `Get-ChildItem -Recurse -File` **看不到空目录**。清点要用 `-Force` 且不限定 `-File`。 |
+| 10 | **无跨设备同步** | 影子对手、段位都是**本地**的 —— 换设备就没有了。这是"零服务端成本"的代价，也是有意的取舍。 |

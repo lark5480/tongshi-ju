@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { BarChart3, Calendar, House, NotebookPen, Orbit, Swords } from "lucide-react";
+import { BarChart3, Calendar, House, NotebookPen, Orbit, Swords, Users } from "lucide-react";
 
 /**
  * 顶部导航。
@@ -15,6 +15,7 @@ import { BarChart3, Calendar, House, NotebookPen, Orbit, Swords } from "lucide-r
 const LINKS = [
   { href: "/", label: "首页", icon: House },
   { href: "/daily", label: "每日", icon: Calendar },
+  { href: "/pk", label: "同题", icon: Users },
   { href: "/duel", label: "对战", icon: Swords },
   { href: "/map", label: "星图", icon: Orbit },
   { href: "/wrong", label: "错题", icon: NotebookPen },

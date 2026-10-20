@@ -4,8 +4,11 @@
  * 设计要点：
  * - `id` 与题库文件名一一对应（`content/domains/<id>.json`）；
  * - `topics` 是**子知识点白名单**，题目的 `topic` 必须命中白名单（由 validate-content 强制）；
- * - `batch` 标记上线批次，`enabled` 标记当前是否已上线；
- *   批次二/三补题时**只改 JSON 数据 + 把 enabled 置 true**，不动任何代码。
+ * - `batch` 标记**补题批次**（1 = 首发，2/3 = 后续补齐），仅用于溯源与文档；
+ * - `enabled` 标记当前是否已上线 —— **12 个域现已全部上线**。
+ *
+ * 后续再加新领域：补齐 `content/domains/<id>.json`（≥40 题）→ 在这里登记元数据
+ * → `npm run validate:content` 通过。**只加数据、不改代码**。
  */
 
 import type { DomainId, DomainMeta } from "@/types";
@@ -71,7 +74,7 @@ export const DOMAINS: DomainMeta[] = [
     color: "#D63031",
     emoji: "🚗",
     batch: 2,
-    enabled: false,
+    enabled: true,
     topics: ["品牌与车型", "动力与混动", "造车工艺", "汽车史", "赛车"],
   },
   {
@@ -80,7 +83,7 @@ export const DOMAINS: DomainMeta[] = [
     color: "#00CEC9",
     emoji: "📱",
     batch: 2,
-    enabled: false,
+    enabled: true,
     topics: ["芯片与系统", "影像", "通讯技术", "机型常识", "行业史"],
   },
   {
@@ -89,7 +92,7 @@ export const DOMAINS: DomainMeta[] = [
     color: "#E84393",
     emoji: "🎬",
     batch: 2,
-    enabled: false,
+    enabled: true,
     topics: ["电影史", "经典影片", "剧集", "演员与导演", "配乐", "综艺与音乐"],
   },
   {
@@ -98,7 +101,7 @@ export const DOMAINS: DomainMeta[] = [
     color: "#00A8B5",
     emoji: "🔬",
     batch: 2,
-    enabled: false,
+    enabled: true,
     topics: ["物理常识", "化学常识", "生物常识", "天文", "地球科学", "人体"],
   },
   {
@@ -107,7 +110,7 @@ export const DOMAINS: DomainMeta[] = [
     color: "#8E44AD",
     emoji: "📖",
     batch: 3,
-    enabled: false,
+    enabled: true,
     topics: ["古典诗词", "成语典故", "近现代文学", "汉字与语言", "修辞"],
   },
   {
@@ -116,7 +119,7 @@ export const DOMAINS: DomainMeta[] = [
     color: "#F39C12",
     emoji: "🧭",
     batch: 3,
-    enabled: false,
+    enabled: true,
     topics: ["世界地标", "中国地理", "地名由来", "气候地貌", "旅行常识"],
   },
 ];

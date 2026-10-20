@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { BarChart3, Flame, NotebookPen, Orbit, Sparkles, Swords, Trophy } from "lucide-react";
+import { BarChart3, Flame, NotebookPen, Orbit, Sparkles, Swords, Target, Trophy, Users } from "lucide-react";
 
 import { Button } from "@/components/ui/Button";
 import { DOMAINS } from "@/content/domains";
@@ -125,6 +125,20 @@ export default function HomePage() {
 
       {/* 快捷入口 */}
       <div className="grid grid-cols-2 gap-3">
+        <Link href="/pk">
+          <div className="panel lift p-4 hover:border-border-strong">
+            <Users size={20} className="text-info" aria-hidden />
+            <div className="mt-2 font-medium">同题 PK</div>
+            <div className="text-xs text-muted">同一个码，同一份题</div>
+          </div>
+        </Link>
+        <Link href="/domains">
+          <div className="panel lift p-4 hover:border-border-strong">
+            <Target size={20} className="text-accent" aria-hidden />
+            <div className="mt-2 font-medium">选本命领域</div>
+            <div className="text-xs text-muted">本命 / 盲盒 / 随缘</div>
+          </div>
+        </Link>
         <Link href="/duel">
           <div className="panel lift p-4 hover:border-border-strong">
             <Swords size={20} className="text-accent" aria-hidden />
