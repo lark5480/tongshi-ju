@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { ArrowRight, Flame, Orbit, Swords, Trophy } from "lucide-react";
+import { ArrowRight, Flame, Orbit, Star, Swords, Trophy } from "lucide-react";
 
 import { useDailyChallenge } from "@/hooks/useDailyChallenge";
 import { QuestionCard } from "@/components/quiz/QuestionCard";
@@ -66,7 +66,7 @@ export default function DailyPage() {
   }
 
   const maxPossible = maxScore(c.questions.map((q) => q.difficulty));
-  const correctCount = c.records.filter((r) => r.correct).length;
+  const correctCount = c.correctCount;
 
   // 知识链槽位：已答的题在前，未答的题在后
   const chainSlots: ChainSlot[] = c.questions.map((q, i) => {
@@ -83,8 +83,14 @@ export default function DailyPage() {
     return (
       <div className="space-y-4">
         <div className="panel space-y-4 p-6 text-center">
-          <div className="text-3xl" aria-hidden>
-            {"⭐".repeat(Math.max(1, c.stars))}
+          <div
+            className="flex items-center justify-center gap-1"
+            role="img"
+            aria-label={`${c.stars} 星`}
+          >
+            {Array.from({ length: Math.max(1, c.stars) }, (_, i) => (
+              <Star key={i} size={30} className="fill-gold text-gold" aria-hidden />
+            ))}
           </div>
           <div>
             <div className="tabular text-4xl font-bold text-accent">{c.score}</div>

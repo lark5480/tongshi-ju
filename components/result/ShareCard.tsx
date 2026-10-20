@@ -86,9 +86,12 @@ export function ShareCard(props: ShareCardProps) {
     ctx.font = "30px system-ui, sans-serif";
     ctx.fillText("分", 72 + ctx.measureText(String(props.score)).width + 24, 320);
 
-    // 星级
-    ctx.font = "46px system-ui, sans-serif";
-    ctx.fillText("⭐".repeat(Math.max(1, props.stars)), 72, 396);
+    // 星级：画成矢量五角星（不用 emoji —— 跨平台字形不一致）
+    const starR = 24;
+    for (let i = 0; i < Math.max(1, props.stars); i++) {
+      ctx.fillStyle = "#FFC24B";
+      drawStar(ctx, 84 + i * (starR * 2 + 10), 378, starR);
+    }
 
     // 右侧信息
     const infoX = 620;
@@ -99,12 +102,12 @@ export function ShareCard(props: ShareCardProps) {
     if (props.maxCombo >= 2) {
       ctx.fillStyle = "#FFC24B";
       ctx.font = "34px system-ui, sans-serif";
-      ctx.fillText(`🔥 最高 ${props.maxCombo} 连击`, infoX, 262);
+      ctx.fillText(`最高 ${props.maxCombo} 连击`, infoX, 262);
     }
     if (props.streak > 0) {
       ctx.fillStyle = "#FFC24B";
       ctx.font = "34px system-ui, sans-serif";
-      ctx.fillText(`🔥 连续 ${props.streak} 天`, infoX, 314);
+      ctx.fillText(`连续 ${props.streak} 天`, infoX, 314);
     }
 
     // PK 码：双方对账的凭据
@@ -243,4 +246,24 @@ function roundRect(
   ctx.arcTo(x, y + h, x, y, r);
   ctx.arcTo(x, y, x + w, y, r);
   ctx.closePath();
+}
+
+/**
+ * 画一个实心五角星。
+ *
+ * 不用 emoji：emoji 在不同系统/浏览器上的字形、大小、基线都不一样，
+ * 成绩卡是要发到社交平台给别人看的 —— 必须是稳定可控的矢量图形。
+ */
+function drawStar(ctx: CanvasRenderingContext2D, cx: number, cy: number, r: number): void {
+  ctx.beginPath();
+  for (let i = 0; i < 10; i++) {
+    const rad = i % 2 === 0 ? r : r * 0.45;
+    const ang = (Math.PI / 5) * i - Math.PI / 2;
+    const x = cx + Math.cos(ang) * rad;
+    const y = cy + Math.sin(ang) * rad;
+    if (i === 0) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
+  }
+  ctx.closePath();
+  ctx.fill();
 }

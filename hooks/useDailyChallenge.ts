@@ -88,6 +88,14 @@ export interface DailyChallengeState {
   /** 已提交？ */
   submitted: boolean;
   records: AnswerRecord[];
+  /**
+   * 本局答对题数。
+   *
+   * 独立于 `records` —— 刷新页面后 `records` 为空（逐题明细不落盘），
+   * 但答对数是**持久化**的（`DailySession.correct`），结算页必须显示它，
+   * 否则刷新一次就会变成"答对 0 / 5 题"。
+   */
+  correctCount: number;
   score: number;
   combo: number;
   maxCombo: number;
@@ -125,6 +133,7 @@ export function useDailyChallenge(): DailyChallengeState {
   const [picked, setPicked] = useState<string | string[]>("");
   const [submitted, setSubmitted] = useState(false);
   const [records, setRecords] = useState<AnswerRecord[]>([]);
+  const [correctCount, setCorrectCount] = useState(0);
   const [score, setScore] = useState(0);
   const [combo, setCombo] = useState(0);
   const [maxCombo, setMaxCombo] = useState(0);
@@ -203,6 +212,7 @@ export function useDailyChallenge(): DailyChallengeState {
               setStars(locked.stars ?? 0);
               setMaxCombo(locked.maxCombo ?? 0);
               setRecords([]);
+              setCorrectCount(locked.correct ?? 0);
               // 已完成的一局：直接给出与影子的对比结论
               setVerdict(compareWithGhost(locked.score ?? 0, getGhost(ghostKey(useDomains))));
             } else {
@@ -317,6 +327,7 @@ export function useDailyChallenge(): DailyChallengeState {
 
       setRecords((prev) => [...prev, record]);
       setScore((s) => s + points);
+      if (correct) setCorrectCount((n) => n + 1);
       setCombo(nextComboValue);
       setMaxCombo((m) => Math.max(m, nextComboValue));
       setSubmitted(true);
@@ -453,6 +464,7 @@ export function useDailyChallenge(): DailyChallengeState {
     picked,
     submitted,
     records,
+    correctCount,
     score,
     combo,
     maxCombo,
