@@ -96,9 +96,7 @@ export default function PkPage() {
                 使用
               </Button>
             </div>
-            <p className="mt-2 text-xs text-dim">
-              今天所有人用推荐码，看到的都是同一份题。
-            </p>
+            <p className="mt-2 text-xs text-dim">今天所有人用推荐码，看到的都是同一份题。</p>
           </div>
 
           {pk.error && (

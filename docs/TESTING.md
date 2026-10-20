@@ -89,7 +89,60 @@ beforeEach(() => {
 
 ---
 
-## 5. 内容校验（CI 必跑）
+## 5. 客户端 hook —— 目前的测试盲区（重要）
+
+> **本项目的单测覆盖的是服务端与纯函数层，React hook 没有自动化测试。**
+> 2026-10-20 的验收就是在浏览器里点出这个盲区的一个**严重缺陷**。
+
+### 5.1 曾经漏掉的那个 bug
+
+`useDailyChallenge.toggleOption` 原来这样提交单选答案：
+
+```ts
+setPicked(option);
+setTimeout(() => submit(), 0);   // ❌ submit 闭包里的 picked 还是旧值（空串）
+```
+
+`submit` 是 `useCallback`，闭包捕获的是**点击前那一帧**的 `picked`。
+`setPicked` 引发的重渲染还没发生，所以 `submit` 读到空答案，
+命中「答案为空」的分支**静默 return** —— 表现为**点了选项毫无反应**：
+分数不动、不给反馈、不进下一题。单选与判断题**全部无法作答**。
+
+服务端路由的 e2e 测试全绿，因为**它从不经过客户端 hook**。
+
+### 5.2 现在的写法（不要退回旧写法）
+
+答案**跟着调用走**，不依赖任何时序：
+
+```ts
+const submit = useCallback((explicit?: string | string[]) => {
+  const value = explicit ?? picked;      // 单选走 explicit
+  ...
+}, [current, picked, submitted, combo]);
+
+// 单选/判断题
+setPicked(option);
+submit(option);                            // ✅ 不再 setTimeout
+```
+
+### 5.3 人工冒烟清单（改 hook 后必跑）
+
+单测**覆盖不到**下面这些。改完 `hooks/**` 或 `components/quiz/**` 后，
+必须实际在浏览器里点一遍：
+
+1. `/daily` 打开 → **点一个单选选项** → 必须立刻出现「答对了/答错了」+ 解析 + 得分；
+2. 答对/答错后 → 顶部连击与分数**要变**；
+3. 「下一题」能进入第 2 题；
+4. 答满 5 题 → 进入结算页，出现影子对比与段位卡；
+5. ��pk` → 输入码 → 开始 → 点一个选项 → 同样有反馈；
+6. 打开**多选题** → 勾选后点「确认作答」→ 正确判定（全对才算对）；
+7. 打开**判断题** → 点选项 → 正确判定。
+
+> 自动化脚本（Playwright）尚未接入 CI —— 这是**已知缺口**，见 `docs/decisions/`。
+
+---
+
+## 6. 内容校验（CI 必跑）
 
 ```bash
 npm run validate:content

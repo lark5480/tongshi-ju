@@ -134,7 +134,7 @@ test("熟练度统计：只数非零项，且只认 `domain|topic` 形态的键"
     "gaming|经典作品": 3,
     "anime|声优": 0,
     "tech|航天": -1,
-    "malformed": 5,
+    malformed: 5,
   };
   // 非零：gaming(+3)、tech(-1) → 2 项；anime 为 0 不计；malformed 键形态不对不计
   assert.equal(countTopicsTouched(m), 2);

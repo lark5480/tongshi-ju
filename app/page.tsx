@@ -2,7 +2,17 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { BarChart3, Flame, NotebookPen, Orbit, Sparkles, Swords, Target, Trophy, Users } from "lucide-react";
+import {
+  BarChart3,
+  Flame,
+  NotebookPen,
+  Orbit,
+  Sparkles,
+  Swords,
+  Target,
+  Trophy,
+  Users,
+} from "lucide-react";
 
 import { Button } from "@/components/ui/Button";
 import { DOMAINS } from "@/content/domains";

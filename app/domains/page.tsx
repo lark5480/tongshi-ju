@@ -102,11 +102,7 @@ export default function DomainsPage() {
                   : "border-border bg-surface hover:border-border-strong"
               }`}
             >
-              <Icon
-                size={16}
-                className={active ? "text-accent" : "text-dim"}
-                aria-hidden
-              />
+              <Icon size={16} className={active ? "text-accent" : "text-dim"} aria-hidden />
               <div
                 className={`mt-1.5 text-[13px] font-semibold ${active ? "text-accent" : "text-fg"}`}
               >
@@ -122,9 +118,7 @@ export default function DomainsPage() {
         {dailyModeHint(mode)}
       </p>
 
-      {mode !== "random" && (
-        <DomainPicker selected={selected} onChange={setSelected} max={max} />
-      )}
+      {mode !== "random" && <DomainPicker selected={selected} onChange={setSelected} max={max} />}
 
       <div className="panel space-y-3 p-4">
         <div className="flex items-center justify-between gap-3 text-sm">

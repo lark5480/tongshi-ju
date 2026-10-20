@@ -40,12 +40,15 @@ export function KnowledgeChain({ slots, combo }: KnowledgeChainProps) {
         <span
           className={`flex items-center gap-1.5 font-medium ${hot ? "text-accent" : "text-muted"}`}
         >
-          <Zap size={13} strokeWidth={2.2} className={hot ? "text-accent" : "text-dim"} aria-hidden />
+          <Zap
+            size={13}
+            strokeWidth={2.2}
+            className={hot ? "text-accent" : "text-dim"}
+            aria-hidden
+          />
           {hot ? `知识链 · ${combo} 连击` : "知识链"}
         </span>
-        {hot && (
-          <span className="tabular font-semibold text-accent">×{multiplier.toFixed(2)}</span>
-        )}
+        {hot && <span className="tabular font-semibold text-accent">×{multiplier.toFixed(2)}</span>}
       </div>
 
       <div

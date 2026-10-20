@@ -181,11 +181,7 @@ export function updateGhost(
     bestCorrect: better ? next.correct : ghost.bestCorrect,
     bestDate: better ? next.date : ghost.bestDate,
     plays: ghost.plays + 1,
-    bestElapsed: better
-      ? next.elapsed
-      : sameScoreFaster
-        ? next.elapsed
-        : ghost.bestElapsed,
+    bestElapsed: better ? next.elapsed : sameScoreFaster ? next.elapsed : ghost.bestElapsed,
   };
 }
 

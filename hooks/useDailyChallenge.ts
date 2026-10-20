@@ -103,7 +103,13 @@ export interface DailyChallengeState {
   verdict: GhostVerdict | null;
   start: () => void;
   toggleOption: (option: string) => void;
-  submit: () => void;
+  /**
+   * 提交当前题。
+   *
+   * `answer` 可选：单选/判断题在点击的同一帧调用，**必须**把答案带进来 ——
+   * 此时 `picked` state 还没生效，闭包里读到的仍是旧值。
+   */
+  submit: (answer?: string | string[]) => void;
   next: () => void;
   reset: () => void;
 }
@@ -198,12 +204,7 @@ export function useDailyChallenge(): DailyChallengeState {
               setMaxCombo(locked.maxCombo ?? 0);
               setRecords([]);
               // 已完成的一局：直接给出与影子的对比结论
-              setVerdict(
-                compareWithGhost(
-                  locked.score ?? 0,
-                  getGhost(ghostKey(useDomains))
-                )
-              );
+              setVerdict(compareWithGhost(locked.score ?? 0, getGhost(ghostKey(useDomains))));
             } else {
               setIndex(0);
             }
@@ -268,68 +269,85 @@ export function useDailyChallenge(): DailyChallengeState {
 
   const current = questions[index] ?? null;
 
-  /** 提交当前题。 */
-  const submit = useCallback(() => {
-    if (!current || submitted) return;
-    const limit = LIMIT_MS[current.difficulty];
-    const elapsed = Math.min(limit, Date.now() - startedAtRef.current);
-    const answerList = Array.isArray(picked) ? picked : [picked];
-    if (answerList.length === 0 || answerList.every((a) => !a)) return;
+  /**
+   * 提交当前题。
+   *
+   * `explicit` 让调用方**直接带上答案**。
+   *
+   * ## 为什么必须这样
+   *
+   * 单选/判断题在点击的**同一帧**就要提交。此时 `setPicked` 触发的重渲染
+   * 还没发生，`submit` 闭包里的 `picked` 仍然是旧值（空串）——
+   * 直接读 state 会命中「答案为空」分支**静默 return**，
+   * 表现为「点了选项却毫无反应」：分数不动、不给反馈、不进下一题。
+   *
+   * 答案跟着调用走，就不依赖任何时序。
+   */
+  const submit = useCallback(
+    (explicit?: string | string[]) => {
+      if (!current || submitted) return;
+      const limit = LIMIT_MS[current.difficulty];
+      const elapsed = Math.min(limit, Date.now() - startedAtRef.current);
+      const value = explicit ?? picked;
+      const answerList = Array.isArray(value) ? value : [value];
+      if (answerList.length === 0 || answerList.every((a) => !a)) return;
 
-    const correct = isCorrect(current.type, current.answer, picked);
-    // 跨域连击：只在跨域时增长，同域不增长也不清零；答错清零
-    const nextComboValue = correct
-      ? nextCombo(combo, true, lastWinDomainRef.current, current.domain)
-      : 0;
-    const points = correct ? roundPoints(current.difficulty, elapsed, limit, combo) : 0;
+      const correct = isCorrect(current.type, current.answer, value);
+      // 跨域连击：只在跨域时增长，同域不增长也不清零；答错清零
+      const nextComboValue = correct
+        ? nextCombo(combo, true, lastWinDomainRef.current, current.domain)
+        : 0;
+      const points = correct ? roundPoints(current.difficulty, elapsed, limit, combo) : 0;
 
-    const record: AnswerRecord = {
-      questionId: current.id,
-      domain: current.domain,
-      topic: current.topic,
-      difficulty: current.difficulty,
-      correct,
-      elapsed,
-      points,
-      combo: nextComboValue,
-      picked,
-      answer: current.answer,
-      explanation: current.explanation,
-    };
+      const record: AnswerRecord = {
+        questionId: current.id,
+        domain: current.domain,
+        topic: current.topic,
+        difficulty: current.difficulty,
+        correct,
+        elapsed,
+        points,
+        combo: nextComboValue,
+        picked: value,
+        answer: current.answer,
+        explanation: current.explanation,
+      };
 
-    if (correct) lastWinDomainRef.current = current.domain;
+      if (correct) lastWinDomainRef.current = current.domain;
 
-    setRecords((prev) => [...prev, record]);
-    setScore((s) => s + points);
-    setCombo(nextComboValue);
-    setMaxCombo((m) => Math.max(m, nextComboValue));
-    setSubmitted(true);
+      setRecords((prev) => [...prev, record]);
+      setScore((s) => s + points);
+      setCombo(nextComboValue);
+      setMaxCombo((m) => Math.max(m, nextComboValue));
+      setSubmitted(true);
 
-    // 熟练度
-    recordMastery(current.domain, current.topic, correct);
+      // 熟练度
+      recordMastery(current.domain, current.topic, correct);
 
-    // 错题本
-    const entries = getWrongEntries();
-    const existing = entries.find((e) => e.questionId === current.id);
-    if (!correct) {
-      const next = existing
-        ? onWrong(existing, Date.now())
-        : createWrongEntry({
-            questionId: current.id,
-            domain: current.domain,
-            topic: current.topic,
-            now: Date.now(),
-          });
-      saveWrongEntries([...entries.filter((e) => e.questionId !== current.id), next]);
-    } else if (existing) {
-      const next = onCorrect(existing, Date.now());
-      saveWrongEntries(
-        next === null
-          ? entries.filter((e) => e.questionId !== current.id)
-          : [...entries.filter((e) => e.questionId !== current.id), next]
-      );
-    }
-  }, [current, picked, submitted, combo]);
+      // 错题本
+      const entries = getWrongEntries();
+      const existing = entries.find((e) => e.questionId === current.id);
+      if (!correct) {
+        const next = existing
+          ? onWrong(existing, Date.now())
+          : createWrongEntry({
+              questionId: current.id,
+              domain: current.domain,
+              topic: current.topic,
+              now: Date.now(),
+            });
+        saveWrongEntries([...entries.filter((e) => e.questionId !== current.id), next]);
+      } else if (existing) {
+        const next = onCorrect(existing, Date.now());
+        saveWrongEntries(
+          next === null
+            ? entries.filter((e) => e.questionId !== current.id)
+            : [...entries.filter((e) => e.questionId !== current.id), next]
+        );
+      }
+    },
+    [current, picked, submitted, combo]
+  );
 
   /** 进入下一题；最后一题则结算。 */
   const next = useCallback(() => {
@@ -406,8 +424,8 @@ export function useDailyChallenge(): DailyChallengeState {
         return;
       }
       setPicked(option);
-      // 单选立即提交：用 setTimeout 等待 picked 状态生效
-      setTimeout(() => submit(), 0);
+      // 单选立即提交：答案跟着调用走，不依赖 setPicked 的重渲染时序
+      submit(option);
     },
     [current, submitted, submit]
   );

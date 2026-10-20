@@ -128,7 +128,9 @@ export function QuestionCard({
                   </span>
                 )}
                 <span className="flex-1">{opt}</span>
-                {state === "correct" && <Check size={18} className="shrink-0 text-success" aria-hidden />}
+                {state === "correct" && (
+                  <Check size={18} className="shrink-0 text-success" aria-hidden />
+                )}
                 {state === "wrong" && <X size={18} className="shrink-0 text-danger" aria-hidden />}
               </span>
             </button>

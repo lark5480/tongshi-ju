@@ -30,7 +30,13 @@ import { buildDailySet } from "@/lib/engine/daily";
 import { isCorrect } from "@/lib/engine/answer";
 import { comboMultiplier, nextCombo, roundPoints } from "@/lib/engine/scoring";
 import { createWrongEntry, onCorrect, onWrong } from "@/lib/engine/repetition";
-import { dailyPkCode, isValidPkCode, normalizePkCode, resolvePkSpec, type PkSpec } from "@/lib/engine/pk";
+import {
+  dailyPkCode,
+  isValidPkCode,
+  normalizePkCode,
+  resolvePkSpec,
+  type PkSpec,
+} from "@/lib/engine/pk";
 import { loadQuestionPool } from "@/lib/content/loader";
 import { getWrongEntries, recordMastery, saveWrongEntries } from "@/lib/storage";
 
@@ -69,7 +75,8 @@ export interface PkState {
   setCode: (code: string) => void;
   start: () => void;
   toggleOption: (option: string) => void;
-  submit: () => void;
+  /** 提交当前题；`answer` 可选（单选/判断题需在同一帧把答案带进来）。 */
+  submit: (answer?: string | string[]) => void;
   next: () => void;
   reset: () => void;
 }
@@ -171,62 +178,72 @@ export function usePkChallenge(): PkState {
     })();
   }, [code, date]);
 
-  /** 提交当前题。 */
-  const submit = useCallback(() => {
-    if (!current || submitted) return;
-    const limit = LIMIT_MS[current.difficulty];
-    const elapsed = Math.min(limit, Date.now() - startedAtRef.current);
-    const answerList = Array.isArray(picked) ? picked : [picked];
-    if (answerList.length === 0 || answerList.every((a) => !a)) return;
+  /**
+   * 提交当前题。
+   *
+   * `explicit` 让调用方直接带上答案 —— 单选/判断题在点击的**同一帧**就要提交，
+   * 此时 `picked` state 还没生效，闭包里读到的仍是旧值（空串），
+   * 直接读 state 会静默 return，表现为「点了选项却毫无反应」。
+   */
+  const submit = useCallback(
+    (explicit?: string | string[]) => {
+      if (!current || submitted) return;
+      const limit = LIMIT_MS[current.difficulty];
+      const elapsed = Math.min(limit, Date.now() - startedAtRef.current);
+      const value = explicit ?? picked;
+      const answerList = Array.isArray(value) ? value : [value];
+      if (answerList.length === 0 || answerList.every((a) => !a)) return;
 
-    const correct = isCorrect(current.type, current.answer, picked);
-    const nextComboValue = correct
-      ? nextCombo(combo, true, lastWinDomainRef.current, current.domain)
-      : 0;
-    const points = correct ? roundPoints(current.difficulty, elapsed, limit, combo) : 0;
+      const correct = isCorrect(current.type, current.answer, value);
+      const nextComboValue = correct
+        ? nextCombo(combo, true, lastWinDomainRef.current, current.domain)
+        : 0;
+      const points = correct ? roundPoints(current.difficulty, elapsed, limit, combo) : 0;
 
-    if (correct) lastWinDomainRef.current = current.domain;
+      if (correct) lastWinDomainRef.current = current.domain;
 
-    setRecords((prev) => [
-      ...prev,
-      {
-        questionId: current.id,
-        domain: current.domain,
-        topic: current.topic,
-        correct,
-        elapsed,
-        points,
-        combo: nextComboValue,
-      },
-    ]);
-    setScore((s) => s + points);
-    setCombo(nextComboValue);
-    setMaxCombo((m) => Math.max(m, nextComboValue));
-    setSubmitted(true);
+      setRecords((prev) => [
+        ...prev,
+        {
+          questionId: current.id,
+          domain: current.domain,
+          topic: current.topic,
+          correct,
+          elapsed,
+          points,
+          combo: nextComboValue,
+        },
+      ]);
+      setScore((s) => s + points);
+      setCombo(nextComboValue);
+      setMaxCombo((m) => Math.max(m, nextComboValue));
+      setSubmitted(true);
 
-    // 熟练度与错题本：PK 学到的和每日学到的是同一批
-    recordMastery(current.domain, current.topic, correct);
-    const entries = getWrongEntries();
-    const existing = entries.find((e) => e.questionId === current.id);
-    if (!correct) {
-      const next = existing
-        ? onWrong(existing, Date.now())
-        : createWrongEntry({
-            questionId: current.id,
-            domain: current.domain,
-            topic: current.topic,
-            now: Date.now(),
-          });
-      saveWrongEntries([...entries.filter((e) => e.questionId !== current.id), next]);
-    } else if (existing) {
-      const next = onCorrect(existing, Date.now());
-      saveWrongEntries(
-        next === null
-          ? entries.filter((e) => e.questionId !== current.id)
-          : [...entries.filter((e) => e.questionId !== current.id), next]
-      );
-    }
-  }, [current, picked, submitted, combo]);
+      // 熟练度与错题本：PK 学到的和每日学到的是同一批
+      recordMastery(current.domain, current.topic, correct);
+      const entries = getWrongEntries();
+      const existing = entries.find((e) => e.questionId === current.id);
+      if (!correct) {
+        const next = existing
+          ? onWrong(existing, Date.now())
+          : createWrongEntry({
+              questionId: current.id,
+              domain: current.domain,
+              topic: current.topic,
+              now: Date.now(),
+            });
+        saveWrongEntries([...entries.filter((e) => e.questionId !== current.id), next]);
+      } else if (existing) {
+        const next = onCorrect(existing, Date.now());
+        saveWrongEntries(
+          next === null
+            ? entries.filter((e) => e.questionId !== current.id)
+            : [...entries.filter((e) => e.questionId !== current.id), next]
+        );
+      }
+    },
+    [current, picked, submitted, combo]
+  );
 
   /** 进入下一题；最后一题则结算。 */
   const next = useCallback(() => {
@@ -252,7 +269,8 @@ export function usePkChallenge(): PkState {
         return;
       }
       setPicked(option);
-      setTimeout(() => submit(), 0);
+      // 单选立即提交：答案跟着调用走，不依赖 setPicked 的重渲染时序
+      submit(option);
     },
     [current, submitted, submit]
   );
