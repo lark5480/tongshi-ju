@@ -18,7 +18,7 @@
   --font-sans:
     ui-sans-serif, system-ui, "PingFang SC", "Microsoft YaHei", "Noto Sans SC", sans-serif;
 
-  /* 星云：默认单色微光，选域后由 <Aurora /> 覆盖 */
+  /* 星云：默认橙/蓝/紫三色微光，选域后由 <Aurora /> 覆盖为当日领域的色 */
   --nebula-1: rgba(255, 106, 43, 0.22);
   --nebula-2: rgba(95, 168, 255, 0.16);
   --nebula-3: rgba(124, 58, 237, 0.14);

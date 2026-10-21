@@ -6,7 +6,7 @@
  * - 同一天 + 同一组领域 → **全网同一份题**（天然可比、可分享）；
  * - 每日挑战**完全不需要服务端状态**（这是双轨部署架构的支点）。
  *
- * 算法（§4.3）：
+ * 算法（docs/GAME-RULES.md §2.1）：
  * 1. `daySeed = hashSeed("daily:" + dateKey + ":" + canonicalDomains(domains).join(","))`
  * 2. `mulberry32(daySeed)` 初始化 PRNG
  * 3. 领域轮转顺序 = 对 domains 做 Fisher-Yates 洗牌

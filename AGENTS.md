@@ -12,7 +12,8 @@
 ## 1. 技术栈
 
 Next.js 14 (App Router) · React 18 · TypeScript 5.5 · Tailwind 3 · SSE
-依赖**仅限** `zod` / `zustand` / `nanoid` / `lucide-react`。
+依赖**仅限** `zod` / `nanoid` / `lucide-react`（`react` / `react-dom` / `next` 是框架自带）。
+状态一律用 React 自身 + localStorage，**没有状态库** —— `zustand` 曾因"列在允许清单里"而被装着但零引用，已移除。
 
 ---
 
@@ -62,10 +63,11 @@ hooks/       useCountdown · useRoomStream · useDailyChallenge · usePkChalleng
 lib/engine/  纯函数：prng · date · answer · scoring · daily · repetition · rank · ghost · blindbox · pk
 lib/store/   房间状态机 · 常量 · 入参校验
 lib/ai/      provider · prompt · 10 步校验链 · 去重
-lib/content/ fingerprint · loader · server-bank
+lib/content/ fingerprint · loader · server-bank · sensitive（内容安全词表）
 content/domains/  12 域元数据 + 12 个题库 JSON
 scripts/     validate-content.ts
-__tests__/   单元测试（单星 glob）
+__tests__/   单元测试（单星 glob，必须平铺）
+e2e/         Playwright 浏览器冒烟（daily / pk / duel / 窄屏）
 docs/        PRD · 架构 · 业务规则 · API · 内容 · 测试 · 设计 · 部署 · 团队 · 调研
 ```
 
@@ -78,12 +80,13 @@ npm install
 npm run dev            # 本地开发 :3000
 npm run dev:lan        # 监听 0.0.0.0（局域网联机调试）
 
-npm run typecheck      # tsc --noEmit
-npm test               # node --import tsx --test __tests__/*.test.ts
-npm run validate:content   # 题库校验
-npm run build          # next build
-npm run lint           # next lint
-npm run format:check   # prettier --check .
+npm run typecheck          # tsc --noEmit
+npm test                   # node --import tsx --test __tests__/*.test.ts（纯函数层 + 服务端）
+npm run test:e2e           # Playwright 浏览器冒烟（自己起 next dev -p 3100，跑完关闭）
+npm run validate:content   # 题库校验（含内容安全词表）
+npm run build              # next build（须在 dev / e2e 停下之后再跑，两者共用 .next）
+npm run lint               # next lint
+npm run format:check       # prettier --check .
 ```
 
 联机对战：双击 `play-online.bat`（构建 → 启动 → cloudflared 隧道 → 复制公网链接）。

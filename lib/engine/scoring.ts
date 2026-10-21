@@ -1,14 +1,15 @@
 /**
  * 计分、连击与星级 —— 每日挑战与对战 duel 共用同一套公式。
  *
- * 公式（§4.6）：
+ * 公式（docs/GAME-RULES.md §3.1）：
  *   base   = { 难度1: 10, 难度2: 20, 难度3: 30 }
  *   speed  = clamp(1 - elapsed / limit, 0, 1) * 0.5 + 0.5        // 0.5 ~ 1.0
  *   blitz  = elapsed <= limit / 3 ? 1.2 : 1.0
  *   points = round(base * speed * blitz * comboMultiplier)
  *
- * 跨域连击（§4.5）：只在**跨域抢先答对**时增长；同域答对保持不变（不惩罚）；
- * 答错 / 被抢 / 超时归零。对手抢先答对不影响本玩家连击（不奖不罚）。
+ * 跨域连击（docs/GAME-RULES.md §3.4）：只在**跨域抢先答对**时增长；同域抢先答对保持不变（不奖不罚）；
+ * 惩罚只针对自己的失误 —— **自己**答错或**自己**超时未答才归零。
+ * 「被对手抢先」不是失误，连击保持不变（裁定与理由见 `lib/store/room.ts` 文件头）。
  */
 
 import type { Difficulty, DomainId } from "@/types";

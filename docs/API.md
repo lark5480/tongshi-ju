@@ -23,10 +23,16 @@
 
 - HTTP 状态码与 `code` **同时**给出，客户端优先按 `code` 分支，界面按 `error` 展示。
 - 所有写接口的入参用 Zod 校验（`lib/store/validate.ts`），未知字段被**剥离**（不报错，但也不生效）。
+- **两个例外**：写接口限流的 429 只有 `{ "error": "请求过于频繁，请稍后再试" }`，**没有** `code`
+  （`lib/rate-limit.ts`）；SSE 流的 429 / 503 / 404 是 `text/plain` 正文，不是 JSON。
 
 ### 0.2 房间码
 
-- 4–8 位大写字母数字，**排除易混字符** `I / O / 0 / 1`（正则 `^[A-HJ-NP-Z2-9]{4,8}$`）。
+- **服务端生成固定 6 位**（`ROOM_LIMITS.CODE_LENGTH`），字符集 `ABCDEFGHJKMNPQRSTUVWXYZ23456789` ——
+  排除易混字符 `I / L / O / 0 / 1`（`lib/store/room.ts` 的 `CODE_CHARS`）。
+- **入参**放宽到 4–8 位：正则 `^[A-HJ-NP-Z2-9]{4,8}$`（`lib/store/validate.ts`）。
+  注意该正则**没有**排除 `L`：手打的 `L` 能通过格式校验，但永远不会命中服务端生成的码，
+  最终表现为 `room_not_found`。
 - 入参的房间码会被 `toUpperCase()` 归一，服务端比较前同样归一。
 
 ### 0.3 凭证（`playerId`）
@@ -61,6 +67,10 @@
 | `no_domain` | 503 | 暂时没有可用的题库领域 |
 | `empty_bank` | 503 | 题库暂不可用 |
 | `internal_error` | 500 | 服务器内部错误 |
+| `unauthorized` | 401 | AI 接口：`x-ai-admin-token` 不匹配 |
+| `ai_disabled` | 503 | AI 接口未启用（缺 provider 配置，或生产环境未设 `AI_ADMIN_TOKEN`） |
+| `ai_failed` | 502 | AI provider 调用失败 |
+| （无 `code`） | 429 | 写接口按 IP 限流，正文只有 `error` |
 
 ---
 
@@ -68,15 +78,15 @@
 
 | 方法 | 路径 | 作用 | 认证 |
 |---|---|---|---|
-| `POST` | `/api/rooms` | 创建房间 | 无 |
-| `GET` | `/api/rooms/[code]` | 读房间快照 | 无 |
-| `POST` | `/api/rooms/[code]/join` | 加入房间 | 无 |
-| `GET` | `/api/rooms/[code]/join` | 轮询房间是否存在（加入前的探测） | 无 |
+| `POST` | `/api/rooms` | 创建房间 | 无（限流 10 次/分/IP） |
+| `GET` | `/api/rooms/[code]` | 读房间快照 | 无；可选 `?playerId=` 只用于回传 `you` |
+| `POST` | `/api/rooms/[code]/join` | 加入房间 | 无（限流 10 次/分/IP） |
+| `GET` | `/api/rooms/[code]/join` | 探测房间能否加入（含房主昵称） | 无 |
 | `POST` | `/api/rooms/[code]/ready` | 准备 / 取消准备 | `playerId` |
 | `POST` | `/api/rooms/[code]/start` | 房主开局 | `playerId` |
 | `POST` | `/api/rooms/[code]/answer` | 提交本题答案 | `playerId` |
 | `POST` | `/api/rooms/[code]/rematch` | 房主发起再来一局 | `playerId` |
-| `GET` | `/api/rooms/[code]/stream` | SSE 实时事件流 | 无（只读对外态） |
+| `GET` | `/api/rooms/[code]/stream` | SSE 实时事件流 | 无（只读对外态）；玩家可带 `?playerId=` 上报在线状态 |
 | `POST` | `/api/ai/generate` | AI 出题（管理入口） | `x-ai-admin-token` |
 
 ---
@@ -97,49 +107,57 @@
 | `emoji` | string | 1–8 字符的单个 emoji |
 | `domains` | string[] | 可选，默认 `[]`；0–3 个合法领域 id，自动去重 |
 
-**出参（201）** —— `RoomCredential` + 快照
+**出参（201）** —— `RoomCredential`
 
 ```json
-{
-  "code": "K7QM",
-  "playerId": "…",
-  "slot": 0,
-  "isHost": true,
-  "room": { "...": "RoomSnapshot" }
-}
+{ "code": "K7QM2P", "playerId": "…", "slot": 0, "isHost": true }
 ```
 
-> `playerId` **只在这里**出现。
+> `playerId` **只在这里**（和 §2.3）出现。
+> 创建响应**不含房间快照** —— 快照要用 §2.2 单独取，或由 SSE 首帧推送。
 
-**错误**：`invalid_input` / `room_limit` / `no_domain` / `empty_bank`
+**错误**：`invalid_input` / `room_limit`
 
 ---
 
 ### 2.2 `GET /api/rooms/[code]` —— 房间快照
 
-**入参**：路径参数 `code`（自动转大写）。
+**入参**：路径参数 `code`（自动转大写）；可选查询参数 `playerId`。
 
-**出参（200）**：`RoomSnapshot`
+**出参（200）**：`{ "room": RoomSnapshot, "you": { "slot": 0, "isHost": true } | null }`
+
+`you` **只在带凭证时**返回，用于告诉客户端「我是几号席位、是不是房主」。
+凭证本身不会进入快照或任何广播事件。
 
 ```jsonc
 {
-  "code": "K7QM",
-  "hostSlot": 0,
-  "status": "lobby",          // lobby | countdown | question | feedback | finished
-  "domains": ["gaming", "anime"],
-  "roundIndex": 0,
-  "questions": [ /* QuestionMeta[] —— 只有元数据，没有答案与解析 */ ],
-  "startedAt": null,          // 当前题开始的**服务端**时间戳
-  "deadlineAt": null,         // 当前题截止的服务端时间戳
-  "limitMs": 30000,
-  "nextAt": null,
-  "lockedWinnerSlot": null,
-  "scores": { "0": 0, "1": 0 },
-  "combos": { "0": 0, "1": 0 },
-  "players": [ /* PublicPlayer[]，按 slot 顺序 */ ],
-  "history": [ /* RoundRecord[] */ ],
-  "serverNow": 1792462600000, // 供客户端校准时钟偏移
-  "totalRounds": 5
+  "room": {
+    "code": "K7QM2P",
+    "hostSlot": 0,
+    "status": "lobby", // lobby | countdown | question | feedback | finished
+    "domains": ["gaming", "anime"],
+    "roundIndex": 0,
+    "questions": [
+      /* QuestionMeta[] —— 只有元数据，没有答案与解析 */
+    ],
+    "startedAt": null, // 当前题开始的**服务端**时间戳
+    "deadlineAt": null, // 当前题截止的服务端时间戳
+    "limitMs": 30000,
+    "nextAt": null,
+    "lockedWinnerSlot": null,
+    "scores": { "0": 0, "1": 0 },
+    "combos": { "0": 0, "1": 0 },
+    "players": [
+      /* PublicPlayer[]，按 slot 顺序 */
+    ],
+    "history": [
+      /* RoundRecord[] */
+    ],
+    "serverNow": 1792462600000, // 供客户端校准时钟偏移
+    "totalRounds": 5,
+    "reason": "全部题目已完成" // 仅 finished 时出现；其余相位该键被省略（值为 undefined）
+  },
+  "you": null
 }
 ```
 
@@ -152,26 +170,29 @@
 **入参**
 
 ```json
-{ "name": "小红", "emoji": "🐱", "code": "K7QM" }
+{ "name": "小红", "emoji": "🐱", "code": "K7QM2P" }
 ```
 
-`code` 会被转大写并按房间码正则校验。
+`code` 会被转大写并按房间码正则（§0.2）校验；路径里的 `[code]` 同样会转大写。
 
-**出参（200）**：`RoomCredential` + 快照（同 §2.1 结构，`slot: 1`、`isHost: false`）。
+**出参（201）**：`RoomCredential`（结构同 §2.1，`slot: 1`、`isHost: false`；同样**不含**快照）。
 
 **错误**：`invalid_input` / `room_not_found` / `room_started` / `room_full`
 
 ---
 
-### 2.4 `GET /api/rooms/[code]/join` —— 探测房间
+### 2.4 `GET /api/rooms/[code]/join` —— 探测房间是否可加入
 
 **入参**：路径参数 `code`。
 
-**出参（200）**：`{ "exists": true, "started": false, "full": false }`
+**出参（200）**
 
-用于「输入房间码」页面的即时反馈。
+```json
+{ "available": true, "hostName": "小明", "domains": ["gaming", "anime"] }
+```
 
-**错误**：`room_not_found`
+**不可加入时不走 200**，而是直接返回对应错误：`room_not_found`（404）/ `room_started`（409）/ `room_full`（409）。
+客户端按状态码与 `code` 分支即可，不需要读一个 `exists: false` 字段。
 
 ---
 
@@ -183,7 +204,7 @@
 { "playerId": "…", "ready": true }
 ```
 
-**出参（200）**：`RoomSnapshot`
+**出参（200）**：`{ "room": RoomSnapshot }`
 
 **错误**：`invalid_input` / `not_a_player` / `room_not_found` / `room_started`
 
@@ -197,12 +218,15 @@
 { "playerId": "…" }
 ```
 
-**出参（200）**：`RoomSnapshot`（`status` 进入 `countdown`）
+**出参（200）**：`{ "room": RoomSnapshot }`（`status` 进入 `countdown`）
 
 **前置条件**：房主、双方已加入、双方已准备。
 
-**错误**：`invalid_input` / `not_a_player` / `not_host` / `room_not_found` /
+**错误**：`invalid_input` / `not_host`（凭证不是房主的） / `room_not_found` /
 `room_started` / `not_enough_players` / `not_all_ready` / `no_domain` / `empty_bank`
+
+> 开局只校验「是不是房主」，不做 `not_a_player` 判定 —— 非玩家用别人的房间码开局，
+> 拿到的是 `not_host`。
 
 ---
 
@@ -226,23 +250,26 @@
 **出参（200）**
 
 ```json
-{
-  "correct": true,
-  "points": 24,
-  "elapsed": 8421,
-  "scores": { "0": 60, "1": 20 },
-  "combos": { "0": 2, "1": 0 }
-}
+{ "ok": true, "correct": true, "winnerSlot": 0 }
 ```
+
+只有这三个字段。**得分、用时、比分一律不从本响应取** ——
+它们由服务端在 `round_result` / `state` 事件里广播（见 §3.1）。
+客户端只据本响应判断「提交有没有被受理」，失败时回滚本地的「已提交」态。
+
+答对时 `winnerSlot` = 本人席位并**立即锁定本回合**；
+答错时 `correct: false`、`winnerSlot: null`，**回合不结束** —— 连击立即归零，
+但对手在截止前仍可答对并拿走该题分值。
 
 **校验顺序（重要）**
 
 ```
-already_answered / round_locked  →  not_answering
+timeout(408)  →  already_answered  →  round_locked  →  not_answering  →  stale_round  →  bad_state
 ```
 
 超时判定前移到 `syncRoomPhase()` **之前** —— 超时提交返回 **408 `timeout`**，
 而不是误报 `not_answering`。
+`already_answered` 排在 `round_locked` 前：对客户端而言，「你自己答过了」比「被别人抢了」更有信息量。
 
 **错误**：`invalid_input` / `not_a_player` / `room_not_found` / `timeout`(408) /
 `already_answered` / `round_locked` / `not_answering` / `stale_round` / `bad_state` / `bad_question`
@@ -257,9 +284,9 @@ already_answered / round_locked  →  not_answering
 { "playerId": "…" }
 ```
 
-**出参（200）**：`RoomSnapshot`（重置比分、连击、回合，回到 `lobby`）
+**出参（200）**：`{ "room": RoomSnapshot }`（重置比分、连击、回合，回到 `lobby`；双方 `ready` 归 `false`）
 
-**错误**：`invalid_input` / `not_a_player` / `not_host` / `room_not_found` / `not_finished`
+**错误**：`invalid_input` / `not_host` / `room_not_found` / `not_finished`
 
 ---
 
@@ -300,8 +327,12 @@ data: <json>
 
 | `event` | 载荷 | 用途 |
 |---|---|---|
-| `rotate` | `{}` | 服务端主动轮换连接前通知客户端**立即静默重连** |
+| `rotate` | `{}` | 服务端主动轮换连接前通知客户端**立即静默重连**（独立事件名，不属于 `RoomEvent`） |
 | （注释行） | `: ping` | 心跳。25s 一次，客户端不会触发 `message` 事件 |
+
+建流第一帧还会写 `retry: 5000`（浏览器原生 `EventSource` 的重连保底）；
+本项目客户端自己接管重连（指数退避），见 `hooks/useRoomStream.ts`。
+连接建立后立刻推一帧 `state` 全量快照，保证重连 / 观战即时同步。
 
 ### 3.3 连接生命周期
 
@@ -316,8 +347,15 @@ data: <json>
 
 ### 3.4 配额
 
-- 超出并发订阅上限时返回 **429**。
-- 全部订阅槽位被占时返回 **503**（`服务器连接数已达上限`）。
+建流前的拒绝都走**纯文本**正文（不是 JSON，也就没有 `code`）：
+
+| 情况 | 响应 |
+|---|---|
+| 房间不存在 | `404` `房间不存在` |
+| 单房间并发订阅超上限（回收僵尸后仍超） | `429` `该房间连接数已达上限` + `Retry-After: 10` |
+| 全局订阅槽位占满 | `503` `服务器连接数已达上限` |
+
+上限见 `lib/store/constants.ts` 的 `STREAM_LIMITS`（单房 12 / 全局 300）。
 
 ---
 
@@ -332,16 +370,39 @@ data: <json>
 **入参**
 
 ```json
-{ "domain": "gaming", "topic": "经典作品", "difficulty": 2, "count": 5, "variantOf": { "questionId": "gaming-0007", "stem": "…", "answer": "…" } }
+{
+  "domain": "gaming",
+  "topic": "经典作品",
+  "difficulty": 2,
+  "count": 5,
+  "variantOf": { "questionId": "gaming-0007", "stem": "…", "answer": "…" }
+}
 ```
 
-`variantOf` 可选 —— 传入时按原题生成「同知识点不同问法」的变体题。
+| 字段 | 约束 |
+|---|---|
+| `domain` | 必填，12 个合法领域 id 之一 |
+| `topic` / `difficulty` | 可选 |
+| `count` | 整数 1–20，默认 5 |
+| `variantOf` | 可选；传入时改走「同知识点不同问法」的变体 prompt |
 
 **出参（200）**
 
 ```json
-{ "status": "pending", "questions": [ /* 待审池条目 */ ] }
+{
+  "batchId": "ai-…",
+  "domain": "gaming",
+  "accepted": [ /* 通过校验链的完整 Question，含 origin:"ai" / batchId / fingerprint */ ],
+  "rejected": [ { "stem": "…", "reason": "near_duplicate", "detail": "…" } ],
+  "status": "pending"
+}
 ```
+
+> `accepted` + `rejected` 一起构成批次结果，二者**都**会返回。
+> **「待审池」目前只是响应里的 `status: "pending"`** —— 服务端不落盘、不入库，
+> 需要调用方自行保存结果再人工转入 `content/domains/<id>.json`（运营界面见 PRD §11.2）。
+
+**错误**：`invalid_input`(400) / `unauthorized`(401) / `ai_disabled`(503) / `ai_failed`(502) / 限流 429
 
 **通过 10 步校验链**的题目**只进待审池**，不直接进正式题库；
 **AI 题永不参与每日挑战**（破坏确定性与排行榜公平）。

@@ -110,6 +110,11 @@ points = round(base * speed * blitz * comboMultiplier)
 | 2 | 25s |
 | 3 | 20s |
 
+**唯一入口**：`lib/engine/scoring.ts` 的 `DIFFICULTY_LIMIT_MS`。
+服务端状态机（`lib/store/room.ts`）与 `hooks/useDailyChallenge` / `hooks/usePkChallenge` /
+`app/daily` / `app/pk` 全部 import 它 —— **不要**在客户端再抄一份数字表，
+否则改限时只会改到一半。
+
 ### 3.3 星级
 
 ```
@@ -243,7 +248,22 @@ SM-2 简化版，间隔序列：
 | 答对 | 连击 +1、间隔推进到下一级 |
 | **连对 2 次** | **毕业**，从错题队列移出 |
 
+### 6.1 「回来找你」目前是怎么发生的（重要）
+
+**没有任何机制把到期错题送进当日题集。** 事实是：
+
+- `buildDailySet({ dateKey, domains, count, pool, seed })` 的入参**不含**错题队列 ——
+  当日题集只由「日期 + 领域集合」决定（红线：无状态、全网同题）；
+- 所以一道错题「回来」= 之后某一天的题集**恰好又抽到同一道题**（同领域集合 + 该域题量有限时才会撞上）；
+- `/wrong` 是**只读队列**：用引擎的 `dueEntries()` / `isDue()` 分「到期 / 排队」两组并显示
+  到期时间、`wrongCount`、连对进度 —— **没有重做入口**，也不产生作答。
+
+> 结论：**间隔序列驱动的是"这道题该怎么计时"，不是"什么时候把它塞给你"**。
+> 要让到期题真的出现，必须在无状态红线下另设一条独立练习流（不进当日题集），
+> 已列入 [`PRD.md`](PRD.md) §11.2 待做。
+
 实现：`lib/engine/repetition.ts` · `createWrongEntry()` / `onWrong()` / `onCorrect()`
+调用方：`hooks/useDailyChallenge.ts` · `hooks/usePkChallenge.ts` · 展示 `app/wrong/page.tsx`
 
 ---
 
@@ -257,7 +277,8 @@ SM-2 简化版，间隔序列：
 
 `best` = 历史最大值，单独记录。
 
-实现：`lib/storage.ts` · `bumpStreak()`
+实现：`lib/storage.ts` · `bumpStreak()`（日期加减复用 `lib/engine/date.ts` 的 `shiftDay()`，
+存储层不再自己写一份）
 
 ---
 
@@ -277,8 +298,11 @@ SM-2 简化版，间隔序列：
 ### 9.1 归一化
 
 ```
-去所有空白 → 去常见标点 → 全角转半角 → 英文小写
+全角转半角 → 英文小写 → 去所有空白 → 去常见标点
 ```
+
+（顺序即 `normalizeAnswer` / `normalizeStem` 的实现顺序：**先**转半角，
+之后标点表才能同时命中全角与半角符号。）
 
 ### 9.2 判定
 
@@ -315,8 +339,11 @@ SM-2 简化版，间隔序列：
 | 同域题目已出完 | 允许重复（兜底） |
 | 玩家在开局后加入 | 拒绝（`room_started`） |
 | 玩家重复提交同一题 | 拒绝（`already_answered`） |
+| 本方答错 | **回合不结束**：立即记 0 分并清零连击，对手在截止前答对照样拿走分值 |
 | 提交的 `roundIndex` 过期 | 拒绝（`stale_round`） |
-| 超时后才提交 | **408 `timeout`**（不是 `not_answering`） |
+| 超时后才提交（duel） | **408 `timeout`**（不是 `not_answering`） |
+| 超时后才提交（daily / PK） | **不禁止作答**：倒计时归零后仍可点，`elapsed` 被钳到 `limit`，速度分取最低档 0.5（无服务端可作弊面，故不做硬拒） |
+| 客户端漏收 `round_start`（SSE 轮换间隙） | 回合态以快照 `roundIndex` 为准并重置本地提交态，见 [`ARCHITECTURE.md`](ARCHITECTURE.md) §4.3 |
 | 对手抢先答对 | 你**没有**失误，连击保持 |
 | 客户端伪造 `elapsed` | Zod 剥离该字段，无效 |
 | localStorage 不可用（隐私模式） | 降级为**内存存储**，游戏仍可玩，UI 给出提示 |
@@ -348,14 +375,20 @@ PK **完全复用**每日挑战的计分、连击、速度与秒答加成公式�
 
 ### 11.3 与其他模式的分工
 
-| 模式 | 对手 | 计入 streak | 计入段位 | 更新熟练度/错题本 |
-|---|---|---|---|---|
-| 每日挑战 | 影子（过去的自己） | ✅ | ✅ | ✅ |
-| 同题 PK | 对方（线下对账） | ❌ | ❌ | ✅ |
-| 同步抢答 duel | 对手（实时） | ❌ | ❌ | ✅ |
+| 模式 | 对手 | 计入 streak | 计入段位 | 更新熟练度 / 错题本 | 写进战绩 history |
+|---|---|---|---|---|---|
+| 每日挑战 | 影子（过去的自己） | ✅ | ✅ | ✅ | ✅ |
+| 同题 PK | 对方（线下对账） | ❌ | ❌ | ✅ | ❌ |
+| 同步抢答 duel | 对手（实时） | ❌ | ❌ | ❌ | ❌ |
 
 > PK **不计入 streak 与段位** —— 否则可以反复开 PK 刷段位。
 > 但它**更新熟练度与错题本** —— 学到的东西和从别处学到的是同一批。
+>
+> ⚠️ **duel 四列全不写**：对局的判定与比分全在服务端房间态里（`lib/store/room.ts`），
+> 客户端房间页**不调用任何 `lib/storage.ts` 写入**（`app/duel/**` 里没有 `recordMastery` /
+> `saveWrongEntries` / `pushHistory` 的调用点），房间结束即随进程内存丢弃。
+> `HistoryEntry.mode` 的 `"duel"` 与 `roomCode` 字段因此**目前没有写入方**（类型里的预留位）。
+> 要打通就先定"duel 结算后写哪些本地档案"，别照着字段名以为已经在记。
 
 ### 11.4 诚实的边界
 

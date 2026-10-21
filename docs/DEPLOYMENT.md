@@ -60,17 +60,35 @@
 
 ### 1.4 CI
 
-`.github/workflows/ci.yml` 的流水线顺序：
+`.github/workflows/ci.yml` 两个 job：
 
 ```
-lint → format:check → typecheck → validate:content → edgeone.json 检查 → test → build
+verify  ：lint → format:check → typecheck → validate:content → edgeone.json 检查 → test → build
+e2e     ：needs: verify → 装 chromium → npm run test:e2e（失败时上传 report 与 trace）
 ```
+
+`e2e` 起的是临时 `next dev -p 3100`，不碰生产构建产物。
 
 其中 `edgeone.json` 检查确保 `maxDuration` 没被误删：
 
 ```bash
 node -e "const c=require('./edgeone.json');if(c.nodeFunctionsConfig?.maxDuration!==120){process.exit(1)}"
 ```
+
+### 1.5 `vercel.json` 的实际含义
+
+仓库根有一份 `vercel.json`，为 SSE 路由单独设 `maxDuration: 60`。
+**它是备选路径，不是当前云轨**：
+
+| 项 | EdgeOne（当前云轨） | Vercel（`vercel.json`） |
+|---|---|---|
+| 函数硬超时 | 120s | **60s** |
+| `STREAM_MAX_AGE_MS` | 100s —— 硬杀前 20s 主动轮换 ✅ | 100s —— **永远到不了**，连接先被平台硬杀 ❌ |
+| 后果 | 清理必执行 | `cancel()` 不保证触发 → 僵尸订阅占配额 → 重连 429 |
+
+> 如果真要上 Vercel，得把 `STREAM_MAX_AGE_MS` / `PING_INTERVAL_MS` / `STALE_SUBSCRIBER_MS`
+> 三个值一起下调到 60s 以内（`lib/store/constants.ts`），并同步改 §1.1 与 ARCHITECTURE §4 的参数表 ——
+> 三件套必须成套改，只改一个等于没改（ [`../AGENTS.md`](../AGENTS.md) 红线口径）。
 
 ---
 

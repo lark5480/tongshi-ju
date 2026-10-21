@@ -31,16 +31,17 @@
 ## 2. 每日挑战的无状态链路
 
 ```
-客户端                                  服务端（可选，仅为一致性）
-  │                                          │
-  ├─ dayKey()  ← lib/engine/date.ts           │
-  ├─ resolveDailyDomains() ← blindbox.ts      │
-  ├─ dailySeed() / buildDailySet() ← daily.ts │
-  │                                          │
-  └─ 抽题、答题、计分、结算（全部本地）        │
+客户端（全部在此完成）
+  ├─ dayKey()  ← lib/engine/date.ts          （本地按 Asia/Shanghai 取今天）
+  ├─ resolveDailyDomains() ← blindbox.ts
+  ├─ dailySeed() / buildDailySet() ← daily.ts
+  └─ 抽题、答题、计分、结算
 ```
 
-**没有服务端参与**。因此：
+**没有服务端参与，也没有对应 API** —— `app/api/` 下只有房间（duel）与 AI 出题两类路由。
+「同一份代码」靠的是 `lib/engine/*` 同时被客户端与服务端 import（duel 服务端抽题用的就是 `buildDailySet`）。
+
+因此：
 
 - 可以部署到任意 Serverless / 静态托管；
 - 同一天同领域组合 → 全网同一份题（天然可比、可分享）；
@@ -68,7 +69,8 @@ lobby → countdown → question → feedback → (下一回合) → finished
 
 | 类型 | key | 用途 |
 |---|---|---|
-| `RoomState` | `playerId` | 服务端内部态（**含凭证**） |
+| `RoomState` | `playerId` | 服务端内部态（**含凭证**），定义在 `types/index.ts` |
+| `RoomStateInternal` | `playerId` | `lib/store/room.ts` 里的实际存储形态：`RoomState` 同构 + 相位计时器引用（**不对外导出**） |
 | `RoomSnapshot` | `slot` | 对外态（**脱敏**） |
 | `RoundRecord` | `slot` | 对外态 |
 
@@ -118,6 +120,17 @@ data: <json>
 `lib/realtime.ts` 用 `globalThis` 单例存订阅表。
 **Serverless 多实例不共享** —— 这也是 duel 只能本地跑的原因之一。
 
+### 4.3 客户端不能把「相位」押在事件上
+
+轮换 / 断线重连的间隙里会**漏事件**：`rotate` 后新连接的第一帧是 `state`，
+中间的 `round_start` 不会补发。所以任何"进入下一回合就该重置"的本地态，
+必须以**快照里的 `roundIndex`** 为准，而不是只监听事件 ——
+`app/duel/room/[code]/page.tsx` 里那段 `seenRoundRef` 效果就是这条规则的落地：
+只按 `round_start` 重置过一次踩坑（答完第 1 题后选项永久停在禁用态，第 2–5 题再也答不了）。
+
+相位本身仍然权威在服务端：`syncRoomPhase()` 的惰性收敛保证即使事件全丢，
+下一次读快照也会拿到正确的 `status` / `roundIndex` / `deadlineAt`。
+
 ---
 
 ## 5. 凭证与安全
@@ -128,7 +141,7 @@ data: <json>
 | `slot` | 对外一律用座位号（`0`=房主，`1`=访客），绝不暴露 `playerId` |
 | Zod 剥离 | 提交体中的未知字段被剥离，客户端伪造 `elapsed` 无效 |
 | 昵称白名单 | `^[\u4e00-\u9fa5A-Za-z0-9_·\- ]+$`，1–12 字符 |
-| 房间码 | `^[A-HJ-NP-Z2-9]{4,8}$`，排除易混字符 `I/O/0/1` |
+| 房间码 | 生成固定 **6 位**，字符集 `ABCDEFGHJKMNPQRSTUVWXYZ23456789`（排除 `I/L/O/0/1`）；入参正则 `^[A-HJ-NP-Z2-9]{4,8}$`（未排除 `L`） |
 | 限流 | `lib/rate-limit.ts` |
 
 > 一旦 `playerId` 泄漏进快照或广播，任何订阅者（含第三方观战者）都能冒充该玩家
@@ -148,7 +161,7 @@ Question[]  （运行时完整格式）
 **磁盘上不存** `domain` / `origin` / `fingerprint` 三个字段 ——
 这样「改了题干忘了更新指纹」这类脏数据**整类消失**。
 
-指纹：题干归一化（去空白去标点、全角转半角、英文小写）后 FNV-1a 32 位哈希。
+指纹：题干归一化（**先**全角转半角、英文小写，**再**去空白与标点）后 FNV-1a 32 位哈希，输出 8 位十六进制。
 
 实现：`lib/content/fingerprint.ts` · `lib/content/loader.ts`
 
@@ -191,6 +204,6 @@ provider（OpenAI 兼容 / Ollama）→ prompt → 10 步校验链 → 待审池
 | 5 | **题库深度** | 每域 40–53 题，每日挑战（5 题/天）在单域上会重复。引擎会兜底重复而非空面。 |
 | 6 | **无账号体系** | 档案/错题/战绩/影子/段位全在 localStorage，换浏览器即丢；清缓存即丢。 |
 | 7 | **npm 12 会拦 `esbuild` / `unrs-resolver` 的 install scripts** | 已实测 `tsx` 与 `node --import tsx --test` 正常工作，不影响工具链。 |
-| 8 | **删除受会话 workspace 边界限制** | `rm --` 只允许删**会话 workspace 内**的目标；目标在外部时改用同一个受信任启动器 `mavis-trash`。**绝不要**用永久删除命令。 |
-| 9 | **删目录前要连空目录一起清点** | `Get-ChildItem -Recurse -File` **看不到空目录**。清点要用 `-Force` 且不限定 `-File`。 |
+| 8 | **（已迁出：本机删除工具边界）** | 原先这里是「`rm` 只到会话 workspace 内 / 外部目标改走回收站启动器」。它讲的是**我这台机器的 shell 行为**，不是《通识局》的架构限制，2026-10-20 移到仓库外的个人笔记。空壳保留是为了不打乱本表行号。 |
+| 9 | **（已迁出：目录清点方式）** | 原先这里是「`Get-ChildItem -Recurse -File` 看不到空目录」。同上，属本机工具而非本项目，已一并移出。 |
 | 10 | **无跨设备同步** | 影子对手、段位都是**本地**的 —— 换设备就没有了。这是"零服务端成本"的代价，也是有意的取舍。 |

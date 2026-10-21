@@ -2,7 +2,7 @@
  * 题库加载器（客户端安全）。
  *
  * 按域**动态 import**：每日挑战只加载玩家选中的 3 个域，
- * 避免把 12 个域全部打进首屏 bundle（§11 / R6）。
+ * 避免把 12 个域全部打进首屏 bundle（docs/ARCHITECTURE.md §6 内容管线）。
  *
  * 动态 import 必须写成字面量（`() => import("@/content/domains/gaming.json")`），
  * 否则打包器无法静态分析，Next.js 会报「Module not found」。
