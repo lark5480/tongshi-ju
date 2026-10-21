@@ -41,7 +41,7 @@ export default function HistoryPage() {
         </span>
         <p className="font-medium">还没有战绩</p>
         <p className="mx-auto max-w-sm text-sm text-muted">
-          完成一次每日挑战就会出现在这里，最近 30 场都会留着。
+          完成一次每日挑战或同步抢答就会出现在这里，最近 30 场都会留着。
         </p>
       </div>
     );
@@ -231,7 +231,7 @@ export default function HistoryPage() {
             <div className="flex items-center gap-2">
               <span className="tabular text-sm font-medium">{e.date}</span>
               <span className="rounded-pill bg-surface-2 px-2 py-0.5 text-[10px] text-muted">
-                {e.mode === "daily" ? "每日" : "对战"}
+                {e.mode === "daily" ? "每日" : `对战 · ${e.roomCode ?? "—"}`}
               </span>
               <span className="ml-auto flex items-center gap-0.5" aria-label={`${e.stars} 星`}>
                 {Array.from({ length: e.stars }, (_, k) => (

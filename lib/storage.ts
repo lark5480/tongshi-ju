@@ -18,6 +18,7 @@ import type {
 } from "@/types";
 import type { GhostRecord } from "@/lib/engine/ghost";
 import { shiftDay } from "@/lib/engine/date";
+import { createWrongEntry, onCorrect, onWrong } from "@/lib/engine/repetition";
 import { computeRank, countTopicsTouched, type RankSnapshot } from "@/lib/engine/rank";
 
 const PREFIX = "tongshi-ju.";
@@ -186,6 +187,55 @@ export function saveWrongEntries(entries: WrongEntry[]): void {
   writeJson("wrong", entries);
 }
 
+export interface AttemptParams {
+  questionId: string;
+  domain: DomainId;
+  topic: string;
+  correct: boolean;
+  /**
+   * 是否同时更新熟练度。默认为 true。
+   * 独立练习流（`/wrong/practice`）只推进错题间隔，不刷熟练度与段位。
+   */
+  mastery?: boolean;
+  now?: number;
+}
+
+/**
+ * 记录一次作答对错 —— 熟练度与错题本的**唯一写入点**。
+ *
+ * 每日挑战、同题 PK、同步抢答结算、错题复习都走这里，
+ * 避免四份各自维护的「答错进队列 / 答对推进 / 连对毕业」逻辑漂移。
+ */
+export function recordAttempt(params: AttemptParams): void {
+  const now = params.now ?? Date.now();
+  if (params.mastery !== false) {
+    recordMastery(params.domain, params.topic, params.correct);
+  }
+
+  const entries = getWrongEntries();
+  const existing = entries.find((e) => e.questionId === params.questionId);
+  if (!params.correct) {
+    const next = existing
+      ? onWrong(existing, now)
+      : createWrongEntry({
+          questionId: params.questionId,
+          domain: params.domain,
+          topic: params.topic,
+          now,
+        });
+    saveWrongEntries([...entries.filter((e) => e.questionId !== params.questionId), next]);
+    return;
+  }
+
+  if (!existing) return;
+  const next = onCorrect(existing, now);
+  saveWrongEntries(
+    next === null
+      ? entries.filter((e) => e.questionId !== params.questionId)
+      : [...entries.filter((e) => e.questionId !== params.questionId), next]
+  );
+}
+
 // ---------------------------------------------------------------- 生涯累计
 
 /**
@@ -289,6 +339,18 @@ export function pushHistory(entry: HistoryEntry): HistoryEntry[] {
   const list = [entry, ...getHistory()].slice(0, HISTORY_LIMIT);
   writeJson("history", list);
   return list;
+}
+
+// ---------------------------------------------------------------- duel 结算去重
+
+/** 该房间最近一次已结算的 matchId；未结算过为 null。 */
+export function getDuelSettledMatch(code: string): string | null {
+  return readRaw(`${PREFIX}duelSettled.${code.toUpperCase()}`);
+}
+
+/** 记录该房间已结算的 matchId（刷新页面后据此跳过重复写入）。 */
+export function setDuelSettledMatch(code: string, matchId: string): void {
+  writeRaw(`${PREFIX}duelSettled.${code.toUpperCase()}`, matchId);
 }
 
 // ---------------------------------------------------------------- 凭证

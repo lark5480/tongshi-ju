@@ -34,7 +34,6 @@ import {
   nextCombo,
   roundPoints,
 } from "@/lib/engine/scoring";
-import { createWrongEntry, onCorrect, onWrong } from "@/lib/engine/repetition";
 import {
   dailyPkCode,
   isValidPkCode,
@@ -43,7 +42,7 @@ import {
   type PkSpec,
 } from "@/lib/engine/pk";
 import { loadQuestionPool } from "@/lib/content/loader";
-import { getWrongEntries, recordMastery, saveWrongEntries } from "@/lib/storage";
+import { recordAttempt } from "@/lib/storage";
 
 export interface PkRecord {
   questionId: string;
@@ -222,28 +221,12 @@ export function usePkChallenge(): PkState {
       setMaxCombo((m) => Math.max(m, nextComboValue));
       setSubmitted(true);
 
-      // 熟练度与错题本：PK 学到的和每日学到的是同一批
-      recordMastery(current.domain, current.topic, correct);
-      const entries = getWrongEntries();
-      const existing = entries.find((e) => e.questionId === current.id);
-      if (!correct) {
-        const next = existing
-          ? onWrong(existing, Date.now())
-          : createWrongEntry({
-              questionId: current.id,
-              domain: current.domain,
-              topic: current.topic,
-              now: Date.now(),
-            });
-        saveWrongEntries([...entries.filter((e) => e.questionId !== current.id), next]);
-      } else if (existing) {
-        const next = onCorrect(existing, Date.now());
-        saveWrongEntries(
-          next === null
-            ? entries.filter((e) => e.questionId !== current.id)
-            : [...entries.filter((e) => e.questionId !== current.id), next]
-        );
-      }
+      recordAttempt({
+        questionId: current.id,
+        domain: current.domain,
+        topic: current.topic,
+        correct,
+      });
     },
     [current, picked, submitted, combo]
   );

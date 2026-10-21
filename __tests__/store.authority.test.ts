@@ -311,3 +311,28 @@ test("答错后连击归零", () => {
   snap = getSnapshot(f.code)!;
   assert.equal(snap.combos["0"], 0, "答错应归零");
 });
+
+test("回合结算记录各席位是否答对，并维护全场最高连击", () => {
+  const f = startDuel();
+  const { answer } = currentAnswer(f.code);
+  submitAnswer({ code: f.code, playerId: f.hostId, roundIndex: 0, answer });
+
+  const snap = getSnapshot(f.code)!;
+  const rec = snap.history[snap.history.length - 1];
+  assert.ok(rec, "应产生结算记录");
+  assert.equal(rec.correct["0"], true, "抢答成功者应标记为答对");
+  assert.equal(rec.correct["1"], false, "对手未作答应标记为未答对");
+
+  const host = snap.players.find((p) => p.slot === 0);
+  assert.ok(host, "快照应包含房主");
+  assert.ok(host!.maxCombo >= 1, "房主本场最高连击应至少为 1");
+});
+
+test("matchId 由房间码与 seed 组成，同一局内稳定", () => {
+  const f = startDuel();
+  const a = getSnapshot(f.code)!;
+  const b = getSnapshot(f.code)!;
+  assert.equal(a.matchId, b.matchId, "同一局内 matchId 必须稳定");
+  assert.ok(a.matchId.startsWith(`${a.code}:`), "matchId 应以房间码开头");
+  assert.ok(a.matchId.length > a.code.length + 1, "matchId 应包含 seed 部分");
+});

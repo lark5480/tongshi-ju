@@ -57,10 +57,10 @@ Next.js 14 (App Router) · React 18 · TypeScript 5.5 · Tailwind 3 · SSE
 ## 3. 目录速查
 
 ```
-app/         页面与 API 路由（App Router）：/ · /daily · /domains · /pk · /duel · /map · /wrong · /history
+app/         页面与 API 路由（App Router）：/ · /daily · /domains · /pk · /duel · /map · /wrong · /wrong/practice · /history
 components/  ui / domain / quiz / result
 hooks/       useCountdown · useRoomStream · useDailyChallenge · usePkChallenge
-lib/engine/  纯函数：prng · date · answer · scoring · daily · repetition · rank · ghost · blindbox · pk
+lib/engine/  纯函数：prng · date · answer · scoring · daily · repetition · practice · rank · ghost · blindbox · pk · duel-settlement
 lib/store/   房间状态机 · 常量 · 入参校验
 lib/ai/      provider · prompt · 10 步校验链 · 去重
 lib/content/ fingerprint · loader · server-bank · sensitive（内容安全词表）

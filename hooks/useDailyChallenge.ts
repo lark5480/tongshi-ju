@@ -36,7 +36,6 @@ import {
   roundPoints,
   starRating,
 } from "@/lib/engine/scoring";
-import { createWrongEntry, onCorrect, onWrong } from "@/lib/engine/repetition";
 import {
   compareWithGhost,
   ghostKey,
@@ -52,13 +51,11 @@ import {
   getDailySession,
   getGhost,
   getProfile,
-  getWrongEntries,
   pushHistory,
-  recordMastery,
+  recordAttempt,
   saveDailySession,
   saveGhost,
   saveProfile,
-  saveWrongEntries,
 } from "@/lib/storage";
 
 export interface AnswerRecord {
@@ -333,30 +330,12 @@ export function useDailyChallenge(): DailyChallengeState {
       setMaxCombo((m) => Math.max(m, nextComboValue));
       setSubmitted(true);
 
-      // 熟练度
-      recordMastery(current.domain, current.topic, correct);
-
-      // 错题本
-      const entries = getWrongEntries();
-      const existing = entries.find((e) => e.questionId === current.id);
-      if (!correct) {
-        const next = existing
-          ? onWrong(existing, Date.now())
-          : createWrongEntry({
-              questionId: current.id,
-              domain: current.domain,
-              topic: current.topic,
-              now: Date.now(),
-            });
-        saveWrongEntries([...entries.filter((e) => e.questionId !== current.id), next]);
-      } else if (existing) {
-        const next = onCorrect(existing, Date.now());
-        saveWrongEntries(
-          next === null
-            ? entries.filter((e) => e.questionId !== current.id)
-            : [...entries.filter((e) => e.questionId !== current.id), next]
-        );
-      }
+      recordAttempt({
+        questionId: current.id,
+        domain: current.domain,
+        topic: current.topic,
+        correct,
+      });
     },
     [current, picked, submitted, combo]
   );

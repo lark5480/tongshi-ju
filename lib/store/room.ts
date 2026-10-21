@@ -113,6 +113,8 @@ interface RoomStateInternal {
   nextAt: number | null;
   scores: Record<string, number>;
   combos: Record<string, number>;
+  /** 内部态：playerId -> 本场最高连击。 */
+  maxCombos: Record<string, number>;
   firstCorrect: Record<string, number>;
   lastWinDomain: Record<string, DomainId | null>;
   history: RoundRecord[];
@@ -182,6 +184,7 @@ function snapshotOf(room: RoomStateInternal): RoomSnapshot {
       score: room.scores[p.id] ?? 0,
       combo: room.combos[p.id] ?? 0,
       firstCorrect: room.firstCorrect[p.id] ?? 0,
+      maxCombo: room.maxCombos[p.id] ?? 0,
     });
   }
 
@@ -194,6 +197,7 @@ function snapshotOf(room: RoomStateInternal): RoomSnapshot {
 
   return {
     code: room.code,
+    matchId: `${room.code}:${room.seed}`,
     hostSlot: 0,
     status: room.status,
     domains: room.domains,
@@ -349,6 +353,7 @@ function settleRound(
   const full = findQuestion(meta.id);
 
   const elapsed: Record<string, number | null> = {};
+  const correct: Record<string, boolean> = {};
   const points: Record<string, number> = {};
   const slotScores: Record<string, number> = {};
 
@@ -356,6 +361,7 @@ function settleRound(
     const key = String(p.slot);
     const ans = room.answered[p.id];
     elapsed[key] = ans && room.startedAt !== null ? ans.at - room.startedAt : null;
+    correct[key] = ans?.correct === true;
 
     let gain = 0;
     if (winnerId === p.id && room.startedAt !== null) {
@@ -393,6 +399,11 @@ function settleRound(
     // 未作答且被对手抢先 → 连击保持不变（不奖不罚）
   }
 
+  // 全场最高连击：只增不减，供结算时写本地档案（不影响本回合计分）
+  for (const p of Object.values(room.players)) {
+    room.maxCombos[p.id] = Math.max(room.maxCombos[p.id] ?? 0, room.combos[p.id] ?? 0);
+  }
+
   const record: RoundRecord = {
     roundIndex: room.roundIndex,
     domain: meta.domain,
@@ -402,6 +413,7 @@ function settleRound(
     explanation: full ? full.explanation : "",
     winnerSlot: winnerId ? slotOf(room, winnerId) : null,
     elapsed,
+    correct,
     points,
     tie: false,
   };
@@ -449,6 +461,7 @@ export function createRoom(params: {
         score: 0,
         combo: 0,
         firstCorrect: 0,
+        maxCombo: 0,
       },
     },
     status: "lobby",
@@ -464,6 +477,7 @@ export function createRoom(params: {
     nextAt: null,
     scores: { [playerId]: 0 },
     combos: { [playerId]: 0 },
+    maxCombos: { [playerId]: 0 },
     firstCorrect: { [playerId]: 0 },
     lastWinDomain: { [playerId]: null },
     history: [],
@@ -497,9 +511,11 @@ export function joinRoom(params: { code: string; name: string; emoji: string }):
     score: 0,
     combo: 0,
     firstCorrect: 0,
+    maxCombo: 0,
   };
   room.scores[playerId] = 0;
   room.combos[playerId] = 0;
+  room.maxCombos[playerId] = 0;
   room.firstCorrect[playerId] = 0;
   room.lastWinDomain[playerId] = null;
   room.lastActivity = now;
@@ -631,10 +647,12 @@ export function startRoom(code: string, playerId: string): RoomSnapshot {
   for (const p of players) {
     room.scores[p.id] = 0;
     room.combos[p.id] = 0;
+    room.maxCombos[p.id] = 0;
     room.firstCorrect[p.id] = 0;
     room.lastWinDomain[p.id] = null;
     p.score = 0; // 同步镜像
     p.combo = 0;
+    p.maxCombo = 0;
     p.firstCorrect = 0;
     p.ready = false;
   }
@@ -767,10 +785,12 @@ export function rematch(code: string, playerId: string): RoomSnapshot {
   for (const p of Object.values(room.players)) {
     room.scores[p.id] = 0;
     room.combos[p.id] = 0;
+    room.maxCombos[p.id] = 0;
     room.firstCorrect[p.id] = 0;
     room.lastWinDomain[p.id] = null;
     p.score = 0; // 同步镜像
     p.combo = 0;
+    p.maxCombo = 0;
     p.firstCorrect = 0;
     p.ready = false;
   }

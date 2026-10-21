@@ -2,7 +2,15 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { Calendar, Check, GraduationCap, NotebookPen, Target, Timer } from "lucide-react";
+import {
+  ArrowRight,
+  Calendar,
+  Check,
+  GraduationCap,
+  NotebookPen,
+  Target,
+  Timer,
+} from "lucide-react";
 
 import { domainColor, domainName } from "@/content/domains";
 import { domainIcon } from "@/components/domain/DomainCard";
@@ -72,8 +80,8 @@ export default function WrongPage() {
         </span>
         <p className="font-medium">错题本还是空的</p>
         <p className="mx-auto max-w-sm text-sm text-muted">
-          答错的题会自动进来，按 1 / 3 / 7 / 15 / 30 天计时。之后再撞上同一道题时，连对{" "}
-          {GRADUATE_STREAK} 次就毕业离场。
+          答错的题会自动进来，按 1 / 3 / 7 / 15 / 30 天计时。到期后可以点「开始复习」重做；
+          答对推进间隔、连对 {GRADUATE_STREAK} 次毕业。
         </p>
         <Link href="/daily" className={buttonClass("primary", "md", false)}>
           <Target size={16} aria-hidden />
@@ -93,7 +101,8 @@ export default function WrongPage() {
           错题本
         </h1>
         <p className="text-sm text-muted">
-          答错的题按间隔计时；再撞上同一道题时连对 {GRADUATE_STREAK} 次毕业。队列只存在本机。
+          答错的题按间隔计时；到期后可以点「开始复习」重做，答对推进间隔、连对 {GRADUATE_STREAK}{" "}
+          次毕业。队列只存在本机。
         </p>
       </header>
 
@@ -130,6 +139,10 @@ export default function WrongPage() {
             <h2 className="text-sm font-semibold">该复习了</h2>
             <span className="tabular ml-auto text-xs text-muted">{due.length} 题</span>
           </div>
+          <Link href="/wrong/practice" className={buttonClass("primary", "md", true)}>
+            <ArrowRight size={16} aria-hidden />
+            开始复习 {due.length} 题
+          </Link>
           {due.map((e) => (
             <WrongRow key={e.questionId} entry={e} now={now} />
           ))}

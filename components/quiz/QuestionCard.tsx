@@ -19,6 +19,8 @@ interface QuestionCardProps {
   limit: number;
   onPick: (option: string) => void;
   onConfirm: () => void;
+  /** 是否显示倒计时数字与时间条（练习流关闭）。 */
+  showTimer?: boolean;
 }
 
 /**
@@ -39,6 +41,7 @@ export function QuestionCard({
   limit,
   onPick,
   onConfirm,
+  showTimer = true,
 }: QuestionCardProps) {
   const color = domainColor(question.domain);
   const DomainGlyph = domainIcon(question.domain);
@@ -73,27 +76,31 @@ export function QuestionCard({
           <span className="opacity-70">· {question.topic}</span>
         </span>
 
-        <span
-          className={`tabular text-sm font-semibold ${
-            urgent ? "animate-pulse-soft text-danger" : warning ? "text-gold" : "text-muted"
-          }`}
-          aria-live="polite"
-          aria-label={submitted ? "已提交" : `剩余 ${Math.ceil(remaining / 1000)} 秒`}
-        >
-          {submitted ? "—" : `${Math.ceil(remaining / 1000)}s`}
-        </span>
+        {showTimer && (
+          <span
+            className={`tabular text-sm font-semibold ${
+              urgent ? "animate-pulse-soft text-danger" : warning ? "text-gold" : "text-muted"
+            }`}
+            aria-live="polite"
+            aria-label={submitted ? "已提交" : `剩余 ${Math.ceil(remaining / 1000)} 秒`}
+          >
+            {submitted ? "—" : `${Math.ceil(remaining / 1000)}s`}
+          </span>
+        )}
       </div>
 
       {/* 剩余时间条：用 scaleX 动画，不动 width，避免布局抖动 */}
-      <div className="h-1.5 w-full overflow-hidden rounded-pill bg-surface-2">
-        <div
-          className="h-full w-full origin-left rounded-pill transition-transform duration-200 ease-linear"
-          style={{
-            transform: `scaleX(${ratio})`,
-            background: urgent ? "#FB7185" : warning ? "#FFC24B" : color,
-          }}
-        />
-      </div>
+      {showTimer && (
+        <div className="h-1.5 w-full overflow-hidden rounded-pill bg-surface-2">
+          <div
+            className="h-full w-full origin-left rounded-pill transition-transform duration-200 ease-linear"
+            style={{
+              transform: `scaleX(${ratio})`,
+              background: urgent ? "#FB7185" : warning ? "#FFC24B" : color,
+            }}
+          />
+        </div>
+      )}
 
       {/* 题干 */}
       <h2 className="text-[18px] font-semibold leading-[1.7]">{question.stem}</h2>

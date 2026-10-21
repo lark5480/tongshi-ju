@@ -118,6 +118,8 @@ export interface PublicPlayer {
   combo: number;
   /** 抢先答对的题数（平分时的次级判据）。同上，与 `firstCorrect[slot]` 一致。 */
   firstCorrect: number;
+  /** 本场最高连击。由 `RoomSnapshot` 构建时从服务端真相派生。 */
+  maxCombo: number;
 }
 
 /** 服务端内部态：以 playerId 为 key。 */
@@ -138,6 +140,13 @@ export interface RoundRecord {
   winnerSlot: Slot | null;
   /** 各席位作答用时（毫秒）；未作答为 null。key 为 slot 的字符串形式。 */
   elapsed: Record<string, number | null>;
+  /**
+   * 各席位本回合是否提交了正确答案。key 为 slot 的字符串形式。
+   *
+   * 只在回合结算后（`round_result` / `history`）出现，此时答案已经公开，
+   * 不会泄露未结算的题目答案。未作答或答错均为 false。
+   */
+  correct: Record<string, boolean>;
   /** 各席位本回合得分。key 为 slot 的字符串形式。 */
   points: Record<string, number>;
   /** 是否发生「近乎同时提交」，用于结算文案标注。 */
@@ -190,6 +199,11 @@ export interface RoomState {
 /** 对外快照 —— 玩家 id 一律脱敏，凭证绝不出现。 */
 export interface RoomSnapshot {
   code: string;
+  /**
+   * 一场对局的稳定标识：`房间码 + ":" + seed`。
+   * rematch 会换 seed，因此 matchId 随之变化。
+   */
+  matchId: string;
   /** 房主所在席位。`players[hostSlot]` 即房主。 */
   hostSlot: Slot;
   status: RoomStatus;
