@@ -56,6 +56,17 @@ export default function DomainsPage() {
     saveProfile({ usedReroll: true });
   };
 
+  /**
+   * 切换模式。
+   *
+   * 切到盲盒时必须把本命裁到 1 个 —— 否则界面会停在「已选 3 / 上限 1」这种不可能的计数态
+   * （存档走 `confirm()` 的 `slice(0, 1)` 所以数据仍然正确，坏的是可见状态）。
+   */
+  const switchMode = (next: DailyMode) => {
+    setMode(next);
+    if (next === "blindbox") setSelected((prev) => prev.slice(0, 1));
+  };
+
   const confirm = () => {
     if (mode === "random") {
       saveProfile({ domains: [], blindbox: false });
@@ -94,7 +105,7 @@ export default function DomainsPage() {
             <button
               key={m.id}
               type="button"
-              onClick={() => setMode(m.id)}
+              onClick={() => switchMode(m.id)}
               aria-pressed={active}
               className={`min-h-[76px] rounded-lg border p-2.5 text-left transition-all duration-fast ${
                 active
@@ -118,7 +129,14 @@ export default function DomainsPage() {
         {dailyModeHint(mode)}
       </p>
 
-      {mode !== "random" && <DomainPicker selected={selected} onChange={setSelected} max={max} />}
+      {mode !== "random" && (
+        <DomainPicker
+          selected={selected}
+          // 传 updater 而不是数组：连点同一帧内也要能叠加（见 DomainPicker 的 props 注释）
+          onChange={(update) => setSelected(update)}
+          max={max}
+        />
+      )}
 
       <div className="panel space-y-3 p-4">
         <div className="flex items-center justify-between gap-3 text-sm">

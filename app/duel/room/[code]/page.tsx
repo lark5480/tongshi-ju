@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import {
   Check,
@@ -102,6 +102,11 @@ export default function DuelRoomPage() {
   const status = snapshot?.status ?? "lobby";
   const roundIndex = snapshot?.roundIndex ?? 0;
   const totalRounds = snapshot?.totalRounds ?? 5;
+  /**
+   * 结算后服务端把 `roundIndex` 推到 5（= 题数），直接 +1 会显示「第 6 / 5 题」。
+   * 展示一律钳到总题数。
+   */
+  const shownRound = Math.min(roundIndex + 1, totalRounds);
   const currentQuestion = snapshot?.questions?.[roundIndex] ?? null;
 
   // 倒计时：答题阶段看 deadlineAt，倒计时阶段看 nextAt
@@ -126,6 +131,20 @@ export default function DuelRoomPage() {
       setPicked("");
     }
   }, [lastEvent, mySlot]);
+
+  /**
+   * 回合号一变就清本地提交态 —— **不能只靠事件**。
+   * SSE 轮换 / 重连的间隙里会漏掉 `round_start`，而快照里的 `roundIndex` 是权威的：
+   * 漏事件的后果是选项永远停在「已提交」的禁用态，玩家从第 2 题起再也答不了。
+   */
+  const seenRoundRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (seenRoundRef.current === roundIndex) return;
+    seenRoundRef.current = roundIndex;
+    setSubmitted(false);
+    setPicked("");
+    setOpponentAnswered(false);
+  }, [roundIndex]);
 
   const me = useMemo(
     () => snapshot?.players.find((p) => p.slot === mySlot) ?? null,
@@ -176,7 +195,8 @@ export default function DuelRoomPage() {
       return;
     }
     setPicked(option);
-    void setTimeout(() => submitAnswer(option), 0);
+    // 答案跟着调用走，不依赖 setPicked 的重渲染时序（见 docs/TESTING.md §5.2）
+    submitAnswer(option);
   };
 
   const submitAnswer = async (answer: string | string[]) => {
@@ -330,7 +350,7 @@ export default function DuelRoomPage() {
           <PlayerSide player={me} mine score={myScore} combo={myCombo} />
           <div className="shrink-0 pt-1 text-center">
             <div className="tabular text-[11px] text-muted">
-              第 {roundIndex + 1} / {totalRounds} 题
+              第 {shownRound} / {totalRounds} 题
             </div>
             <div className="mt-1 text-[11px] text-dim">比分</div>
           </div>

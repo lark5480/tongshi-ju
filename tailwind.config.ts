@@ -65,17 +65,9 @@ const config: Config = {
         sans: ["var(--font-sans)", "system-ui", "sans-serif"],
       },
       keyframes: {
-        "pulse-ring": {
-          "0%": { transform: "scale(0.9)", opacity: "0.7" },
-          "100%": { transform: "scale(1.6)", opacity: "0" },
-        },
         "fade-in": {
           "0%": { opacity: "0", transform: "translateY(4px)" },
           "100%": { opacity: "1", transform: "translateY(0)" },
-        },
-        flame: {
-          "0%,100%": { transform: "scale(1)" },
-          "50%": { transform: "scale(1.15)" },
         },
         /** 答错：轻微横向抖动（不夸张，280ms） */
         shake: {
@@ -85,45 +77,23 @@ const config: Config = {
           "60%": { transform: "translateX(-2px)" },
           "80%": { transform: "translateX(2px)" },
         },
-        /** 落位：轻微回弹（得分、徽章） */
+        /** 落位：轻微回弹（选项反馈） */
         "pop-in": {
           "0%": { transform: "scale(0.94)", opacity: "0" },
           "60%": { transform: "scale(1.02)", opacity: "1" },
           "100%": { transform: "scale(1)", opacity: "1" },
-        },
-        /** 上浮：得分数字飘起 */
-        rise: {
-          "0%": { transform: "translateY(6px)", opacity: "0" },
-          "25%": { opacity: "1" },
-          "100%": { transform: "translateY(-14px)", opacity: "0" },
-        },
-        /** 连击链推进：横向填充（用 transform，不动 width） */
-        "chain-fill": {
-          "0%": { transform: "scaleX(0)" },
-          "100%": { transform: "scaleX(1)" },
         },
         /** 倒计时告急：轻微缩放脉冲 */
         "pulse-soft": {
           "0%,100%": { transform: "scale(1)" },
           "50%": { transform: "scale(1.04)" },
         },
-        /** 星星点亮 */
-        "star-pop": {
-          "0%": { transform: "scale(0.6)", opacity: "0" },
-          "70%": { transform: "scale(1.15)", opacity: "1" },
-          "100%": { transform: "scale(1)", opacity: "1" },
-        },
       },
       animation: {
-        "pulse-ring": "pulse-ring 1.2s ease-out infinite",
         "fade-in": "fade-in 0.25s ease-out",
-        flame: "flame 1.6s ease-in-out infinite",
         shake: "shake 280ms cubic-bezier(.36,.07,.19,.97)",
         "pop-in": "pop-in 320ms cubic-bezier(.34,1.56,.64,1)",
-        rise: "rise 900ms cubic-bezier(.22,1,.36,1) forwards",
-        "chain-fill": "chain-fill 320ms cubic-bezier(.22,1,.36,1) forwards",
         "pulse-soft": "pulse-soft 1.2s ease-in-out infinite",
-        "star-pop": "star-pop 420ms cubic-bezier(.34,1.56,.64,1)",
       },
     },
   },

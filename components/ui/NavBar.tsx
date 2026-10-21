@@ -39,7 +39,7 @@ export function NavBar() {
           <span className="text-[15px]">通识局</span>
         </Link>
 
-        <nav className="no-scrollbar -mx-1 flex flex-1 items-center gap-1 overflow-x-auto px-1 py-1.5">
+        <nav className="no-scrollbar -mx-1 flex flex-1 items-center gap-2 overflow-x-auto px-1 py-1.5">
           {LINKS.map((l) => {
             const active = pathname === l.href;
             const Icon = l.icon;

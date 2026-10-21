@@ -28,7 +28,12 @@ import { DOMAINS } from "@/content/domains";
 import { dayKey } from "@/lib/engine/date";
 import { buildDailySet } from "@/lib/engine/daily";
 import { isCorrect } from "@/lib/engine/answer";
-import { comboMultiplier, nextCombo, roundPoints } from "@/lib/engine/scoring";
+import {
+  comboMultiplier,
+  DIFFICULTY_LIMIT_MS as LIMIT_MS,
+  nextCombo,
+  roundPoints,
+} from "@/lib/engine/scoring";
 import { createWrongEntry, onCorrect, onWrong } from "@/lib/engine/repetition";
 import {
   dailyPkCode,
@@ -39,9 +44,6 @@ import {
 } from "@/lib/engine/pk";
 import { loadQuestionPool } from "@/lib/content/loader";
 import { getWrongEntries, recordMastery, saveWrongEntries } from "@/lib/storage";
-
-/** 每题的作答限时（毫秒），与每日挑战一致。 */
-const LIMIT_MS: Record<1 | 2 | 3, number> = { 1: 30_000, 2: 25_000, 3: 20_000 };
 
 export interface PkRecord {
   questionId: string;
@@ -190,7 +192,8 @@ export function usePkChallenge(): PkState {
       if (!current || submitted) return;
       const limit = LIMIT_MS[current.difficulty];
       const elapsed = Math.min(limit, Date.now() - startedAtRef.current);
-      const value = explicit ?? picked;
+      // 同 useDailyChallenge：只认答案本体，误传进来的事件对象一律回落到 picked
+      const value = typeof explicit === "string" || Array.isArray(explicit) ? explicit : picked;
       const answerList = Array.isArray(value) ? value : [value];
       if (answerList.length === 0 || answerList.every((a) => !a)) return;
 

@@ -168,7 +168,7 @@ export default function HomePage() {
           <div className="panel lift p-4 hover:border-border-strong">
             <NotebookPen size={20} className="text-gold" aria-hidden />
             <div className="mt-2 font-medium">错题本</div>
-            <div className="text-xs text-muted">老朋友会再来找你</div>
+            <div className="text-xs text-muted">答错的题在这里排队计时</div>
           </div>
         </Link>
         <Link href="/history">

@@ -8,7 +8,7 @@ import { domainColor, domainName } from "@/content/domains";
 import { domainIcon } from "@/components/domain/DomainCard";
 import { Button, buttonClass } from "@/components/ui/Button";
 import { getWrongEntries } from "@/lib/storage";
-import { GRADUATE_STREAK, masteryRatio } from "@/lib/engine/repetition";
+import { GRADUATE_STREAK, dueEntries, isDue, masteryRatio } from "@/lib/engine/repetition";
 import type { WrongEntry } from "@/types";
 
 const DAY_MS = 86400000;
@@ -27,9 +27,9 @@ interface DueInfo {
   due: boolean;
 }
 
-/** 下次复习时间 → 人类可读的日期 + 相对描述。 */
-function dueInfo(nextDueAt: number, now: number): DueInfo {
-  const diff = nextDueAt - now;
+/** 下次复习时间 → 人类可读的日期 + 相对描述（是否到期由引擎判定，不在这里重算）。 */
+function dueInfo(entry: WrongEntry, now: number): DueInfo {
+  const diff = entry.nextDueAt - now;
   const days = Math.ceil(diff / DAY_MS);
   let rel: string;
   if (diff <= 0) rel = "现在";
@@ -37,7 +37,7 @@ function dueInfo(nextDueAt: number, now: number): DueInfo {
   else if (days <= 2) rel = "明天";
   else if (days <= 30) rel = `${days} 天后`;
   else rel = `${Math.round(days / 30)} 个月后`;
-  return { abs: DATE_FMT.format(new Date(nextDueAt)), rel, due: diff <= 0 };
+  return { abs: DATE_FMT.format(new Date(entry.nextDueAt)), rel, due: isDue(entry, now) };
 }
 
 /** 错题本：间隔重复队列 —— 什么时候该来、错过几次、连对进度。 */
@@ -50,16 +50,15 @@ export default function WrongPage() {
     setReady(true);
   }, []);
 
-  // 队列按「下次该来」的时间排序：到期的排前面，排队的按时间先后
+  // 队列按「下次该来」的时间排序：到期的排前面，排队的按时间先后。
+  // 「到期」这件事只由引擎的 isDue / dueEntries 判定，页面不自己比较时间戳。
   const { due, queued, now } = useMemo(() => {
     const now = Date.now();
-    const dueList: WrongEntry[] = [];
-    const queuedList: WrongEntry[] = [];
-    for (const e of entries) {
-      (e.nextDueAt <= now ? dueList : queuedList).push(e);
-    }
-    dueList.sort((a, b) => a.nextDueAt - b.nextDueAt);
-    queuedList.sort((a, b) => a.nextDueAt - b.nextDueAt);
+    const dueList = dueEntries(entries, now).sort((a, b) => a.nextDueAt - b.nextDueAt);
+    const dueIds = new Set(dueList.map((e) => e.questionId));
+    const queuedList = entries
+      .filter((e) => !dueIds.has(e.questionId))
+      .sort((a, b) => a.nextDueAt - b.nextDueAt);
     return { due: dueList, queued: queuedList, now };
   }, [entries]);
 
@@ -73,7 +72,8 @@ export default function WrongPage() {
         </span>
         <p className="font-medium">错题本还是空的</p>
         <p className="mx-auto max-w-sm text-sm text-muted">
-          答错的题会自动进来，间隔几天再来找你一次。连续答对 {GRADUATE_STREAK} 次就毕业离场。
+          答错的题会自动进来，按 1 / 3 / 7 / 15 / 30 天计时。之后再撞上同一道题时，连对{" "}
+          {GRADUATE_STREAK} 次就毕业离场。
         </p>
         <Link href="/daily" className={buttonClass("primary", "md", false)}>
           <Target size={16} aria-hidden />
@@ -93,7 +93,7 @@ export default function WrongPage() {
           错题本
         </h1>
         <p className="text-sm text-muted">
-          答错的题按间隔重来。连对 {GRADUATE_STREAK} 次毕业，队列只存在本机。
+          答错的题按间隔计时；再撞上同一道题时连对 {GRADUATE_STREAK} 次毕业。队列只存在本机。
         </p>
       </header>
 
@@ -155,7 +155,7 @@ export default function WrongPage() {
 
 /** 队列中的一道错题。 */
 function WrongRow({ entry, now }: { entry: WrongEntry; now: number }) {
-  const info = dueInfo(entry.nextDueAt, now);
+  const info = dueInfo(entry, now);
   const color = domainColor(entry.domain);
   const Icon = domainIcon(entry.domain);
 

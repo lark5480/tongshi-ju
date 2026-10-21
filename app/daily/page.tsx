@@ -15,10 +15,8 @@ import { domainIcon } from "@/components/domain/DomainCard";
 import { getProfile, getRankSnapshot, getStreak } from "@/lib/storage";
 import { ghostSourceLabel, ghostVerdictText } from "@/lib/engine/ghost";
 import { dailyModeLabel } from "@/lib/engine/blindbox";
-import { maxScore } from "@/lib/engine/scoring";
+import { DIFFICULTY_LIMIT_MS as LIMIT_MS, maxScore } from "@/lib/engine/scoring";
 import type { RankSnapshot } from "@/lib/engine/rank";
-
-const LIMIT_MS: Record<1 | 2 | 3, number> = { 1: 30_000, 2: 25_000, 3: 20_000 };
 
 export default function DailyPage() {
   const c = useDailyChallenge();
@@ -248,7 +246,7 @@ export default function DailyPage() {
         remaining={c.remaining}
         limit={LIMIT_MS[q.difficulty]}
         onPick={c.toggleOption}
-        onConfirm={c.submit}
+        onConfirm={() => c.submit()}
       />
 
       {c.submitted && (

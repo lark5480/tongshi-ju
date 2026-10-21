@@ -17,6 +17,7 @@ import type {
   WrongEntry,
 } from "@/types";
 import type { GhostRecord } from "@/lib/engine/ghost";
+import { shiftDay } from "@/lib/engine/date";
 import { computeRank, countTopicsTouched, type RankSnapshot } from "@/lib/engine/rank";
 
 const PREFIX = "tongshi-ju.";
@@ -146,20 +147,11 @@ export function getStreak(): StreakState {
 export function bumpStreak(date: string): StreakState {
   const prev = getStreak();
   if (prev.lastDate === date) return prev;
-  const yesterday = shiftDateKey(date, -1);
+  const yesterday = shiftDay(date, -1);
   const current = prev.lastDate === yesterday ? prev.current + 1 : 1;
   const next: StreakState = { current, best: Math.max(prev.best, current), lastDate: date };
   writeJson("streak", next);
   return next;
-}
-
-/** 日期加减（UTC 计算，仅用于日期字符串，避免时区漂移）。 */
-export function shiftDateKey(dateKey: string, days: number): string {
-  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateKey);
-  if (!m) return dateKey;
-  const d = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])));
-  d.setUTCDate(d.getUTCDate() + days);
-  return d.toISOString().slice(0, 10);
 }
 
 // ---------------------------------------------------------------- 熟练度

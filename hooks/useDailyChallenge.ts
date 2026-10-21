@@ -29,6 +29,8 @@ import { buildDailySet } from "@/lib/engine/daily";
 import { isCorrect } from "@/lib/engine/answer";
 import {
   comboMultiplier,
+  // 限时口径唯一来源在服务端共用的引擎里 —— 客户端不再抄一份数字表
+  DIFFICULTY_LIMIT_MS as LIMIT_MS,
   maxScore,
   nextCombo,
   roundPoints,
@@ -58,9 +60,6 @@ import {
   saveProfile,
   saveWrongEntries,
 } from "@/lib/storage";
-
-/** 每题的作答限时（毫秒），与对战一致。 */
-const LIMIT_MS: Record<1 | 2 | 3, number> = { 1: 30_000, 2: 25_000, 3: 20_000 };
 
 export interface AnswerRecord {
   questionId: string;
@@ -298,7 +297,9 @@ export function useDailyChallenge(): DailyChallengeState {
       if (!current || submitted) return;
       const limit = LIMIT_MS[current.difficulty];
       const elapsed = Math.min(limit, Date.now() - startedAtRef.current);
-      const value = explicit ?? picked;
+      // 只认「答案本体」：JSX 里把 submit 直接当 onClick 用会把 MouseEvent 传进来，
+      // 那时必须回落到 picked，而不是拿事件对象去比对（会静默答不上）。
+      const value = typeof explicit === "string" || Array.isArray(explicit) ? explicit : picked;
       const answerList = Array.isArray(value) ? value : [value];
       if (answerList.length === 0 || answerList.every((a) => !a)) return;
 

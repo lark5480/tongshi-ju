@@ -10,7 +10,12 @@ import { getMastery } from "@/lib/storage";
 
 interface DomainPickerProps {
   selected: DomainId[];
-  onChange: (next: DomainId[]) => void;
+  /**
+   * 更新选中集合。收的是 **updater**（而不是算好的数组）：
+   * 同一次 tick 里连点两张卡时，读 `selected` 闭包会丢掉前一次点击
+   * —— 和当初「单选题点不动」是同一类时序坑。
+   */
+  onChange: (update: (prev: DomainId[]) => DomainId[]) => void;
   max?: number;
   disabled?: boolean;
 }
@@ -25,12 +30,11 @@ export function DomainPicker({ selected, onChange, max = 3, disabled }: DomainPi
   const mastery = useMemo(() => getMastery(), []);
 
   const toggle = (id: DomainId) => {
-    if (selected.includes(id)) {
-      onChange(selected.filter((x) => x !== id));
-      return;
-    }
-    if (selected.length >= max) return;
-    onChange([...selected, id]);
+    onChange((prev) => {
+      if (prev.includes(id)) return prev.filter((x) => x !== id);
+      if (prev.length >= max) return prev;
+      return [...prev, id];
+    });
   };
 
   const remaining = max - selected.length;

@@ -115,7 +115,7 @@ export default function DuelLobbyPage() {
           同步抢答
         </h1>
         <p className="text-sm text-muted">
-          同一题面同时开始，先答对者赢下这一回合。答错即锁定 0 分 —— 敢不敢早按？
+          同一题面同时开始，先答对者独占该题分值。答错记 0 分，但回合不结束 —— 敢不敢早按？
         </p>
       </header>
 
@@ -200,7 +200,7 @@ export default function DuelLobbyPage() {
             aria-label="房间码"
             inputMode="text"
             autoCapitalize="characters"
-            className="tabular min-h-[48px] flex-1 rounded-sm border border-border bg-surface-2 px-3 text-center text-xl font-bold tracking-[0.3em] outline-none transition-colors duration-fast placeholder:tracking-[0.05em] focus:border-accent"
+            className="tabular min-h-[48px] min-w-0 flex-1 rounded-sm border border-border bg-surface-2 px-3 text-center text-xl font-bold tracking-[0.3em] outline-none transition-colors duration-fast placeholder:tracking-[0.05em] focus:border-accent"
           />
           <Button
             variant="secondary"

@@ -13,8 +13,7 @@ import { DOMAINS } from "@/content/domains";
 import { domainIcon } from "@/components/domain/DomainCard";
 import { getProfile } from "@/lib/storage";
 import { isValidPkCode, normalizePkCode } from "@/lib/engine/pk";
-
-const LIMIT_MS: Record<1 | 2 | 3, number> = { 1: 30_000, 2: 25_000, 3: 20_000 };
+import { DIFFICULTY_LIMIT_MS as LIMIT_MS } from "@/lib/engine/scoring";
 
 /**
  * 同题 PK —— 「同一个码，同一份题」。
@@ -212,7 +211,7 @@ export default function PkPage() {
         remaining={pk.remaining}
         limit={LIMIT_MS[q.difficulty]}
         onPick={pk.toggleOption}
-        onConfirm={pk.submit}
+        onConfirm={() => pk.submit()}
       />
 
       {pk.submitted && (
