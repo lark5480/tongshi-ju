@@ -133,6 +133,7 @@
 {
   "room": {
     "code": "K7QM2P",
+    "matchId": "K7QM2P:1978364213", // 本场稳定标识（房间码 + seed）；rematch 后变化
     "hostSlot": 0,
     "status": "lobby", // lobby | countdown | question | feedback | finished
     "domains": ["gaming", "anime"],
@@ -148,10 +149,10 @@
     "scores": { "0": 0, "1": 0 },
     "combos": { "0": 0, "1": 0 },
     "players": [
-      /* PublicPlayer[]，按 slot 顺序 */
+      /* PublicPlayer[]，按 slot 顺序；含 score / combo / firstCorrect / maxCombo */
     ],
     "history": [
-      /* RoundRecord[] */
+      /* RoundRecord[]；仅在回合结算后追加，未结算时为空 */
     ],
     "serverNow": 1792462600000, // 供客户端校准时钟偏移
     "totalRounds": 5,
@@ -160,6 +161,10 @@
   "you": null
 }
 ```
+
+> `RoundRecord` 在回合结算后额外包含 `correct: Record<string, boolean>`（各席位是否提交了正确答案；
+> key 为 slot 字符串，未作答为 false）。它只在答案已公开的 `history` / `round_result` 里出现。
+> `maxCombo` 是**本场最高连击**，客户端据此写 duel 战绩；`matchId` 用于结算去重。
 
 **错误**：`room_not_found`
 

@@ -88,6 +88,24 @@ lobby → countdown → question → feedback → (下一回合) → finished
 
 房间按 `lastActivity` 判定过期并清理；订阅者按 `STREAM_MAX_AGE_MS` 判定僵尸并回收。
 
+### 3.5 对战结算落本地档案
+
+对局结束后，客户端把**服务端权威快照**转换成一份本地结算计划
+（`lib/engine/duel-settlement.ts`）：
+
+- `RoundRecord.correct[slot]` 决定每个回合本人是否答对；
+- `PublicPlayer.maxCombo` 提供本场最高连击；
+- `RoomSnapshot.matchId = 房间码 + ":" + seed` 标记「哪一场」。
+
+只处理**本人实际作答过**的回合（`elapsed[slot] != null`）——被对手抢先 / 未作答的题
+既不刷熟练度，也不进错题本。写入项只有 `history`（`mode: "duel"` + `roomCode`）、
+熟练度与错题本；**不写** streak、lifetime/段位、影子、每日 session。
+
+去重分两层：页面内用 ref 防同一快照重复触发，跨刷新用 localStorage 的
+`duelSettled.<房间码>` 记住 `matchId`。rematch 换 seed → 换 `matchId` → 才会再次结算。
+
+> 这是纯客户端落盘，不改变服务端权威：服务端不保存任何玩家的本地档案。
+
 ---
 
 ## 4. SSE 实时通道

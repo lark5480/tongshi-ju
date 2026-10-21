@@ -15,8 +15,10 @@ npm run test:e2e      # Playwright 浏览器冒烟（自己起 dev，跑 e2e/ �
 `test:e2e` 会用 `playwright.config.ts` 里的 `webServer` 在 **3100 端口**起一个 `next dev`，
 跑完自动关掉；本机若已有服务在 3100 上会被复用（CI 里不复用）。
 
-> **两条通道都实测过**：默认通道（Playwright 自带 chromium）本机 15/15 通过、约 42s；
-> 没装那个浏览器的机器上可以 `PW_CHANNEL=msedge npm run test:e2e` 走已装的 Edge（同样 15/15，约 50s）。
+> **默认通道实测**：Playwright 自带 chromium 本机 16/16 通过，耗时约 1–1.5 分钟
+> （duel 用例要等服务端回合定时器，波动最大）。
+> 没装那个浏览器的机器上可以 `PW_CHANNEL=msedge npm run test:e2e` 走已装的 Edge
+> （Edge 通道此前 15 条全绿；本次新增练习用例后未复跑 Edge）。
 > CI 用默认通道（`npx playwright install --with-deps chromium`）。
 > **别在 e2e 或 dev 跑着的时候同时 `npm run build`** —— 两者共用 `.next`，
 > 会把正在服务的 dev 打成全站 500。
@@ -95,10 +97,11 @@ beforeEach(() => {
 - **不变量**（比值落在 [0,1]、集合无重复、排序稳定）；
 - **退化行为**（题库为空、候选池为空）。
 
-现有 18 个用例文件：`prng` · `engine.answer` · `engine.scoring` · `engine.daily` ·
-`engine.repetition` · `engine.rank` · `engine.ghost` · `engine.blindbox` · `engine.pk` ·
-`store.validate` · `store.authority` · `store.room` · `store.lifecycle` ·
-`rate-limit` · `content.validate` · `ai.validation` · `ai.dedupe` · `e2e.smoke`
+现有 21 个用例文件：`prng` · `engine.answer` · `engine.scoring` · `engine.daily` ·
+`engine.repetition` · `engine.practice` · `engine.duel-settlement` · `engine.rank` ·
+`engine.ghost` · `engine.blindbox` · `engine.pk` · `store.validate` · `store.authority` ·
+`store.room` · `store.lifecycle` · `rate-limit` · `content.validate` · `content.sensitive` ·
+`ai.validation` · `ai.dedupe` · `e2e.smoke`
 
 > ⚠️ **`lib/engine/date.ts` 没有用例文件** —— 它的日期口径（Asia/Shanghai 的 `dayKey()`、
 > `shiftDay` / `daysBetween`）目前只靠调用方间接验证。这是纯函数层的一个已知缺口。
@@ -108,7 +111,7 @@ beforeEach(() => {
 ## 5. 客户端：自动化守住了主流程，人只负责判断类问题
 
 > 单测打的是服务端与纯函数层。**2026-10-20 起下面这份清单已经写成 `e2e/`（Playwright）脚本**，
-> 并配进 `.github/workflows/ci.yml` 的 `e2e` job —— 本机两条通道各 15 条全绿，
+> 并配进 `.github/workflows/ci.yml` 的 `e2e` job —— 本机默认通道 16 条全绿，
 > 2026-10-21 首次推送时该 job 在 GitHub 上实跑通过（1m25s）。
 > 所以这里从"必须手点"改成"脚本守住主流程，人看脚本看不出来的东西"。
 
@@ -166,7 +169,9 @@ submit(option);                            // ✅ 不再 setTimeout
 9. duel 中途让连接断一次（切后台 / 断网 / 等到 100s 主动轮换）→ 重连后仍能作答且比分正确。
    （人 —— 脚本目前不复用 100s 轮换窗口；§8 的回合推进断言用的是单调越过而非精确题号，
    就是为了让这一类时序波动不变成假失败）
-10. 360px 窄屏无横向溢出 + 命中区 ≥44px；（`responsive.spec.ts`，8 条路由 + 底线尺寸）
+10. `/wrong` 有到期错题 → 「开始复习」→ 独立练习 → 完成后该题不再待复习；
+    （`practice.spec.ts`；只断言流程与队列清空，不断言具体对错）
+11. 360px 窄屏无横向溢出 + 命中区 ≥44px；（`responsive.spec.ts`，8 条路由 + 底线尺寸）
 
 > 仍要人看的：视觉层级、文案语气（[`design/ui-system.md`](design/ui-system.md) §5）、
 > 动效是否干扰节奏 —— 这些没有可断言的判据，脚本装不出来。
@@ -188,7 +193,7 @@ onConfirm={() => c.submit()}  // ✅ 不带参数调用，才会回落到 picked
 误传进来的对象一律回落到 `picked`（`useDailyChallenge` / `usePkChallenge` 都加了）。
 
 > **清单存在不等于跑过。** 冒烟的范围也要跟着代码走：改动 `hooks/**`、`components/quiz/**`、
-> `app/{daily,pk,duel}/**` 之后都算，且交付说明里要写明"点过哪几条、看到什么"，
+> `app/{daily,pk,duel,wrong}/**` 之后都算，且交付说明里要写明"点过哪几条、看到什么"，
 > 或者明确写"没有人工冒烟"。
 
 ---

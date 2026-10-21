@@ -248,22 +248,27 @@ SM-2 简化版，间隔序列：
 | 答对 | 连击 +1、间隔推进到下一级 |
 | **连对 2 次** | **毕业**，从错题队列移出 |
 
-### 6.1 「回来找你」目前是怎么发生的（重要）
+### 6.1 到期错题怎么「回来」
 
-**没有任何机制把到期错题送进当日题集。** 事实是：
+**每日题集仍然不包含错题队列。** `buildDailySet({ dateKey, domains, count, pool, seed })`
+的入参没有错题队列 —— 当日题集只由「日期 + 领域集合」决定（红线：无状态、全网同题）。
 
-- `buildDailySet({ dateKey, domains, count, pool, seed })` 的入参**不含**错题队列 ——
-  当日题集只由「日期 + 领域集合」决定（红线：无状态、全网同题）；
-- 所以一道错题「回来」= 之后某一天的题集**恰好又抽到同一道题**（同领域集合 + 该域题量有限时才会撞上）；
-- `/wrong` 是**只读队列**：用引擎的 `dueEntries()` / `isDue()` 分「到期 / 排队」两组并显示
-  到期时间、`wrongCount`、连对进度 —— **没有重做入口**，也不产生作答。
+到期错题通过**独立练习流** `/wrong/practice` 重做：
 
-> 结论：**间隔序列驱动的是"这道题该怎么计时"，不是"什么时候把它塞给你"**。
-> 要让到期题真的出现，必须在无状态红线下另设一条独立练习流（不进当日题集），
-> 已列入 [`PRD.md`](PRD.md) §11.2 待做。
+- 入口：`/wrong` 的「开始复习 N 题」，只对 `isDue()` 为真的条目开放；
+- 选题：`dueEntries()` 按 `nextDueAt` 升序（同一时刻按 `questionId` 字典序），
+  最多取 `PRACTICE_LIMIT = 10` 题；只从本地完整题库按 id 还原，找不到的条目跳过；
+- 作答：**无倒计时**；提交后用 `isCorrect()` 判定，再调用
+  `recordAttempt({ mastery: false })`，**只推进错题间隔**（答错 `onWrong` / 答对 `onCorrect`），
+  连对 2 次毕业；
+- 不写：分数、战绩 `history`、streak、lifetime/段位、熟练度、影子；
+  也不调用 `buildDailySet`。因此不影响每日挑战的确定性、全网同题与影子口径。
 
-实现：`lib/engine/repetition.ts` · `createWrongEntry()` / `onWrong()` / `onCorrect()`
-调用方：`hooks/useDailyChallenge.ts` · `hooks/usePkChallenge.ts` · 展示 `app/wrong/page.tsx`
+> 结论：间隔序列驱动的是「这道题该怎么计时」；「到期」只决定**练习入口是否可点**，
+> 不会把题塞进当日题集。
+
+实现：`lib/engine/repetition.ts` · `lib/engine/practice.ts` · `app/wrong/practice/page.tsx`
+调用方：`hooks/useDailyChallenge.ts` · `hooks/usePkChallenge.ts` · duel 结算 · 展示 `app/wrong/page.tsx`
 
 ---
 
@@ -290,6 +295,9 @@ SM-2 简化版，间隔序列：
 - 「触及过的知识点数」= 熟练度表中**值非 0** 的条目数（用于段位）。
 
 实现：`lib/storage.ts` · `recordMastery()` / `masteryStars()` / `countTopicsTouched()`
+
+> 错题复习流（`/wrong/practice`）**不更新熟练度**（`recordAttempt({ mastery: false })`）——
+> 复习只推进错题间隔，不刷星图与段位。
 
 ---
 
@@ -335,6 +343,7 @@ SM-2 简化版，间隔序列：
 | 场景 | 处理 |
 |---|---|
 | 题库某域为空 | 跳过该域补位；全空则提示「题库准备中」 |
+| 错题复习时题库里找不到该题 | 跳过该条，不阻塞本轮（题库变更后的兜底） |
 | 题目难度不匹配 | 放宽到该域任意难度 |
 | 同域题目已出完 | 允许重复（兜底） |
 | 玩家在开局后加入 | 拒绝（`room_started`） |
@@ -379,16 +388,19 @@ PK **完全复用**每日挑战的计分、连击、速度与秒答加成公式�
 |---|---|---|---|---|---|
 | 每日挑战 | 影子（过去的自己） | ✅ | ✅ | ✅ | ✅ |
 | 同题 PK | 对方（线下对账） | ❌ | ❌ | ✅ | ❌ |
-| 同步抢答 duel | 对手（实时） | ❌ | ❌ | ❌ | ❌ |
+| 同步抢答 duel | 对手（实时） | ❌ | ❌ | ✅（仅本人实际作答过的回合） | ✅（`mode: "duel"` + `roomCode`） |
+| 到期错题复习 | 无（独立练习） | ❌ | ❌ | 只更新错题本（不更新熟练度） | ❌ |
 
 > PK **不计入 streak 与段位** —— 否则可以反复开 PK 刷段位。
 > 但它**更新熟练度与错题本** —— 学到的东西和从别处学到的是同一批。
 >
-> ⚠️ **duel 四列全不写**：对局的判定与比分全在服务端房间态里（`lib/store/room.ts`），
-> 客户端房间页**不调用任何 `lib/storage.ts` 写入**（`app/duel/**` 里没有 `recordMastery` /
-> `saveWrongEntries` / `pushHistory` 的调用点），房间结束即随进程内存丢弃。
-> `HistoryEntry.mode` 的 `"duel"` 与 `roomCode` 字段因此**目前没有写入方**（类型里的预留位）。
-> 要打通就先定"duel 结算后写哪些本地档案"，别照着字段名以为已经在记。
+> duel 的判定与比分全部来自服务端快照（`RoundRecord.correct` / `PublicPlayer.maxCombo`），
+> 客户端只负责在结束后写本地档案。**被对手抢先 / 自己未作答的回合不写**：
+> 既不加熟练度，也不进错题本。`matchId = 房间码 + ":" + seed` 用于去重，
+> 刷新结算页不会重复写；rematch 换 seed 后才会重新结算。
+> **仍不写 streak、lifetime/段位、影子与每日 session**（防刷）。
+>
+> 错题复习的优先级更低：它**只推进错题间隔**，连熟练度都不写（见 §6.1）。
 
 ### 11.4 诚实的边界
 

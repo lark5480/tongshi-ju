@@ -22,7 +22,15 @@ import { useCountdown } from "@/hooks/useCountdown";
 import { Button } from "@/components/ui/Button";
 import { domainColor, domainName } from "@/content/domains";
 import { domainIcon } from "@/components/domain/DomainCard";
-import { getRoomPlayerId } from "@/lib/storage";
+import { dayKey } from "@/lib/engine/date";
+import { buildDuelSettlement } from "@/lib/engine/duel-settlement";
+import {
+  getDuelSettledMatch,
+  getRoomPlayerId,
+  pushHistory,
+  recordAttempt,
+  setDuelSettledMatch,
+} from "@/lib/storage";
 import type { PublicPlayer, RoomSnapshot, Slot } from "@/types";
 
 /**
@@ -155,6 +163,23 @@ export default function DuelRoomPage() {
     [snapshot, mySlot]
   );
   const isHost = mySlot !== null && snapshot?.hostSlot === mySlot;
+
+  // ---- 结算落本地档案（history / 熟练度 / 错题本） ----
+  // duel 不写 streak、lifetime/段位、影子、每日 session（见 docs/GAME-RULES.md §11.3）。
+  // 用 ref 记住已处理的 matchId：同一次渲染 / SSE 重复快照不会重复写；
+  // 刷新页面时本地已记录 matchId，同样跳过。rematch 换了 matchId 才重新结算。
+  const settledMatchRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!snapshot || snapshot.status !== "finished" || mySlot === null) return;
+    if (settledMatchRef.current === snapshot.matchId) return;
+    const plan = buildDuelSettlement(snapshot, mySlot, dayKey());
+    if (!plan) return;
+    settledMatchRef.current = plan.matchId;
+    if (getDuelSettledMatch(code) === plan.matchId) return;
+    for (const attempt of plan.attempts) recordAttempt(attempt);
+    pushHistory(plan.history);
+    setDuelSettledMatch(code, plan.matchId);
+  }, [snapshot, mySlot, code]);
 
   // ---- 动作 ----
   const post = useCallback(
@@ -597,6 +622,7 @@ export default function DuelRoomPage() {
               </div>
             ))}
           </div>
+          <p className="text-xs text-muted">战绩已记入本地档案（不计连续天数与段位）</p>
           {isHost && (
             <Button block onClick={rematch} disabled={busy}>
               再来一局
