@@ -164,4 +164,4 @@ npm run format:check     # Prettier
 
 ## 许可
 
-MIT © [xuqinglong](https://github.com/lark5480) —— 正文见 [LICENSE](LICENSE)。
+MIT © [lark5480](https://github.com/lark5480) —— 正文见 [LICENSE](LICENSE)。
