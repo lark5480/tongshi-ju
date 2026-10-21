@@ -9,6 +9,9 @@
 
 `Next.js 14` · `React 18` · `TypeScript` · `Tailwind 3` · `SSE`
 
+[![CI](https://github.com/lark5480/tongshi-ju/actions/workflows/ci.yml/badge.svg)](https://github.com/lark5480/tongshi-ju/actions/workflows/ci.yml)
+[![license: MIT](https://img.shields.io/badge/license-MIT-informational)](LICENSE)
+
 </div>
 
 ---
@@ -149,8 +152,8 @@ npm run format:check     # Prettier
 ✅ 「星轨」视觉系统 · SVG 图标 · 完整 prefers-reduced-motion 支持
 ✅ AI 出题管线（10 步校验链 + 待审池）· 人工题库内容安全卡口
 ✅ 浏览器冒烟（Playwright）：daily / PK / duel 双人回合 / 360px 窄屏，本机 15 条全绿
-⚙️ 流水线已配置（`lint → format → typecheck → 题库校验 → 单测 → build` + `e2e`）——
-**仓库尚无远端，CI 未在 GitHub 上实跑过**，推上去之前别把它当成已验证
+✅ 流水线已在 GitHub Actions 实跑通过：`verify`（lint / format / typecheck / 题库校验 / 单测 / 构建）
+→ `e2e`（Playwright 浏览器冒烟），顶部徽章即其状态
 ⬜ 待审池运营界面 · 到期错题的练习入口 · duel 结算落本地档案
 （排行榜已裁定**不做**，理由见 `docs/PRD.md` §11.1；2v2 仍属待裁决）
 ```
@@ -159,4 +162,4 @@ npm run format:check     # Prettier
 
 ## 许可
 
-MIT
+MIT © [xuqinglong](https://github.com/lark5480) —— 正文见 [LICENSE](LICENSE)。
