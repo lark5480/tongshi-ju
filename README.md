@@ -147,8 +147,10 @@ npm run format:check     # Prettier
 ✅ 12 域全部上线 · 511 题带解析 · 每日挑战 · 同题 PK · 同步抢答 duel · 错题本 · 知识星图 · 战绩
 ✅ 四个亮点玩法：影子对手 · 通识段位 · 盲盒轮转 · 同题 PK
 ✅ 「星轨」视觉系统 · SVG 图标 · 完整 prefers-reduced-motion 支持
-✅ AI 出题管线（10 步校验链 + 待审池）· 人工题库内容安全卡口 · CI 流水线
-✅ 浏览器冒烟（Playwright）已进 CI：daily / PK / duel 双人回合 / 360px 窄屏
+✅ AI 出题管线（10 步校验链 + 待审池）· 人工题库内容安全卡口
+✅ 浏览器冒烟（Playwright）：daily / PK / duel 双人回合 / 360px 窄屏，本机 15 条全绿
+⚙️ 流水线已配置（`lint → format → typecheck → 题库校验 → 单测 → build` + `e2e`）——
+**仓库尚无远端，CI 未在 GitHub 上实跑过**，推上去之前别把它当成已验证
 ⬜ 待审池运营界面 · 到期错题的练习入口 · duel 结算落本地档案
 （排行榜已裁定**不做**，理由见 `docs/PRD.md` §11.1；2v2 仍属待裁决）
 ```
