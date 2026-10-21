@@ -24,6 +24,7 @@ import type { DomainId, Difficulty, Question } from "@/types";
 import { isValidTopic, topicsOf } from "@/content/domains";
 import { validateQuestionShape } from "@/lib/engine/answer";
 import { fingerprintOf } from "@/lib/content/fingerprint";
+import { firstBlockedTerm } from "@/lib/content/sensitive";
 
 import { addToIndex, checkFingerprint, checkNearDuplicate, type DomainTokenIndex } from "./dedupe";
 
@@ -88,24 +89,7 @@ const AMBIGUOUS_PATTERNS = [
   "都包括",
 ];
 
-/** 敏感 / 违禁内容词表（可按需扩充）。 */
-const SENSITIVE_PATTERNS = [
-  // 暴力与犯罪
-  "杀人",
-  "自杀方法",
-  "制毒",
-  "贩毒",
-  "赌博网站",
-  // 色情
-  "裸体",
-  "情色",
-  // 极端政治与仇恨
-  "种族灭绝",
-  "纳粹",
-  // 药物与违禁品
-  "冰毒",
-  "大麻种植",
-];
+/** 敏感 / 违禁内容：词表唯一来源在 `lib/content/sensitive.ts`，这里不另立一份。 */
 
 export interface ValidateOptions {
   domain: DomainId;
@@ -255,10 +239,8 @@ export function validateAiBatch(raw: unknown, opts: ValidateOptions): Validation
       continue;
     }
 
-    // ---- 步骤 10：敏感内容 ----
-    const sensitive = SENSITIVE_PATTERNS.find(
-      (p) => stem.includes(p) || draft.explanation.includes(p)
-    );
+    // ---- 步骤 10：敏感内容（阻断级词表与人工题库共用一份）----
+    const sensitive = firstBlockedTerm(stem, draft.explanation, ...draft.options);
     if (sensitive) {
       rejected.push({ stem, reason: "sensitive_content", detail: `命中敏感词「${sensitive}」` });
       continue;

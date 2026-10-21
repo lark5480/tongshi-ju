@@ -3,14 +3,9 @@
  *
  * 校验对象：`content/domains/*.json` 全部 12 个文件。
  *
- * 校验项：
- *  1. 文件结构符合 schema（字段齐全、类型正确、未知字段被拒）
- *  2. `id` 格式正确且全局唯一
- *  3. 归一化题干指纹全局唯一（重复题干即判重失败）
- *  4. `topic` 必须命中所属领域的 topic 白名单
- *  5. 答案必须命中选项；多选题答案数量等于选项数量
- *  6. 选项无重复；解析非空
- *  7. 报告每域题量与难度分布（题量不足 40 时给出警告，不阻断）
+ * **校验项与级别（错误 / 警告）的唯一真相源是 [`docs/CONTENT.md`](../docs/CONTENT.md) §2**，
+ * 本脚本不另列一份清单 —— 两处编号迟早会打架。
+ * 代码里的行内注释用「CONTENT.md §2 规则 N」回指。
  *
  * 退出码：0 = 通过；1 = 存在阻断级错误。
  *
@@ -24,6 +19,7 @@ import { domainFileSchema } from "../content/domains/schema";
 import { DOMAINS, topicsOf } from "../content/domains/index";
 import { validateQuestionShape } from "../lib/engine/answer";
 import { fingerprintOf, normalizeStem, tokenize, jaccard } from "../lib/content/fingerprint";
+import { scanSensitive } from "../lib/content/sensitive";
 
 const CONTENT_DIR = join(process.cwd(), "content", "domains");
 const MIN_QUESTIONS = 40;
@@ -54,6 +50,7 @@ function main(): void {
     .filter((f) => f.endsWith(".json"))
     .sort();
 
+  // 规则 13：文件与领域元数据一一对应，文件名即域名
   const expected = new Set(DOMAINS.map((d) => `${d.id}.json`));
   for (const f of files) {
     if (!expected.has(f)) err(f, "-", `存在未在领域元数据中登记的题库文件`);
@@ -96,7 +93,7 @@ function main(): void {
     for (const q of questions) {
       totalQuestions++;
 
-      // 2. id 唯一
+      // 规则 2：id 全局唯一
       const prevId = seenIds.get(q.id);
       if (prevId) err(file, q.id, `id 重复（已存在于 ${prevId}）`);
       else seenIds.set(q.id, file);
@@ -106,18 +103,18 @@ function main(): void {
         err(file, q.id, `id 前缀应为 ${domain}-`);
       }
 
-      // 3. 指纹唯一（归一化后比较，能抓出只差标点空白的重复题）
+      // 规则 3：指纹全局唯一（归一化后比较，能抓出只差标点空白的重复题）
       const fp = fingerprintOf(q.stem);
       const prevFp = seenFingerprints.get(fp);
       if (prevFp) err(file, q.id, `题干指纹重复（与 ${prevFp} 相同，可能是同一道题）`);
       else seenFingerprints.set(fp, q.id);
 
-      // 4. topic 白名单
+      // 规则 4：topic 白名单
       if (!topics.includes(q.topic)) {
         err(file, q.id, `topic「${q.topic}」不在 ${domain} 的白名单内`);
       }
 
-      // 5/6. 选项、答案、解析
+      // 规则 5 / 6：选项、答案、解析（validateQuestionShape 单一裁判）
       const shapeErrors = validateQuestionShape({
         type: q.type,
         options: q.options,
@@ -126,7 +123,7 @@ function main(): void {
       });
       for (const e of shapeErrors) err(file, q.id, e);
 
-      // 多选题答案必须已按原始字符串字典序排序（保证文件存储形态稳定）
+      // 规则 8：多选题答案必须已按原始字符串字典序排序（保证文件存储形态稳定）
       if (q.type === "multi" && Array.isArray(q.answer)) {
         const rawSorted = [...q.answer].sort();
         if (rawSorted.join("|") !== q.answer.join("|")) {
@@ -134,12 +131,26 @@ function main(): void {
         }
       }
 
-      // 判断题选项必须固定为 正确/错误
+      // 规则 9：判断题选项必须固定为 正确/错误
       if (q.type === "judge" && q.options.join("|") !== "正确|错误") {
         err(file, q.id, '判断题选项必须固定为 ["正确", "错误"]');
       }
 
-      // 9. 同域近似查重
+      // 规则 14 / 15：内容安全（词表唯一来源 lib/content/sensitive.ts）
+      // block 级直接阻断入库；review 级只提示人工复核 —— 事实题不该被词表判死。
+      for (const hit of scanSensitive(q.stem, q.explanation, q.topic, ...q.options)) {
+        if (hit.level === "block") {
+          err(file, q.id, `命中阻断级内容安全词「${hit.term}」，不允许入库`);
+        } else {
+          warn(
+            file,
+            q.id,
+            `涉及时政/领土/民族/宗教表述「${hit.term}」，请人工复核是否只在陈述事实`
+          );
+        }
+      }
+
+      // 规则 12：同域近似查重
       const tokens = tokenize(normalizeStem(q.stem));
       for (const other of tokenList) {
         if (jaccard(tokens, other.tokens) > NEAR_DUP_THRESHOLD) {
@@ -151,7 +162,7 @@ function main(): void {
 
     domainTokens.set(domain, tokenList);
 
-    // 7. 题量与难度分布
+    // 规则 10 / 11：题量与难度分布
     if (questions.length < MIN_QUESTIONS) {
       warn(file, "-", `题量 ${questions.length} 少于建议的 ${MIN_QUESTIONS} 题`);
     }
