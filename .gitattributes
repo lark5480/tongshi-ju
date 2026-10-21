@@ -1,0 +1,7 @@
+# 统一换行：仓库内一律 LF
+# 根因：本机 core.autocrlf=true 会在 checkout 时把 JSON 题库写成 CRLF，
+# 而 prettier 的 endOfLine 默认 lf —— 两者对冲会让 format:check 在
+# 「内容其实没变」的文件上报红（踩过一次）。声明 eol=lf 后 checkout 不再转换。
+* text=auto eol=lf
+*.png binary
+*.ico binary

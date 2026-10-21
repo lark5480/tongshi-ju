@@ -48,3 +48,8 @@ next-env.d.ts
 
 # cloudflared 本地二进制（体积大，按需下载）
 cloudflared.exe
+
+# Playwright 产物
+/test-results/
+/playwright-report/
+/blob-report/

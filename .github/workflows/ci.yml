@@ -52,3 +52,41 @@ jobs:
 
       - name: Production build
         run: npm run build
+
+  # 浏览器冒烟：单测打到的是服务端与纯函数层，React 页面是盲区。
+  # 已经咬过三口（单选题点不动 / duel 第 2 回合起选项永久禁用 / 多选确认作答静默失败），
+  # 全部是"verify 全绿但玩家玩不了"。判据见 docs/TESTING.md §5.4。
+  e2e:
+    name: Browser smoke (Playwright)
+    runs-on: ubuntu-latest
+    needs: verify
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install browsers
+        run: npx playwright install --with-deps chromium
+
+      - name: Run e2e smoke
+        run: npm run test:e2e
+
+      # 失败时把报告与 trace 留成产物，否则线上翻车只能靠日志尾部猜
+      - name: Upload Playwright report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 7
