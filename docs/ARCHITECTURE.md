@@ -15,7 +15,7 @@
 ├─────────────────────────────────────────────────────────┤
 │ lib/engine/     纯函数：客户端与服务端共用，无 IO         │
 │ lib/store/      房间状态机（服务端内存）+ 入参校验       │
-│ lib/ai/         AI provider / prompt / 10 步校验链      │
+│ lib/ai/         AI provider / prompt / 校验链            │
 │ lib/content/    指纹 / 题库加载 / 服务端题库             │
 │ lib/storage.ts  localStorage 安全封装（客户端）           │
 ├─────────────────────────────────────────────────────────┤
@@ -97,9 +97,8 @@ lobby → countdown → question → feedback → (下一回合) → finished
 - `PublicPlayer.maxCombo` 提供本场最高连击；
 - `RoomSnapshot.matchId = 房间码 + ":" + seed` 标记「哪一场」。
 
-只处理**本人实际作答过**的回合（`elapsed[slot] != null`）——被对手抢先 / 未作答的题
-既不刷熟练度，也不进错题本。写入项只有 `history`（`mode: "duel"` + `roomCode`）、
-熟练度与错题本；**不写** streak、lifetime/段位、影子、每日 session。
+写入范围以 [`GAME-RULES.md`](GAME-RULES.md) §11.3 为准：只写本人实际作答过的回合，
+不写 streak / 段位 / 影子 / 每日 session。
 
 去重分两层：页面内用 ref 防同一快照重复触发，跨刷新用 localStorage 的
 `duelSettled.<房间码>` 记住 `matchId`。rematch 换 seed → 换 `matchId` → 才会再次结算。
@@ -113,12 +112,17 @@ lobby → countdown → question → feedback → (下一回合) → finished
 | 机制 | 参数 | 不做会怎样 |
 |---|---|---|
 | 心跳 ping | 25s | 中间代理掐断连接 |
-| 主动轮换 rotate | 100s | 平台 120s 硬杀 → `cancel()` 不触发 → 僵尸订阅占满配额 → **重连永远 429** |
+| 主动轮换 rotate | 100s | 平台硬杀（上限见 [`DEPLOYMENT.md`](DEPLOYMENT.md) §1.1）→ `cancel()` 不触发 → 僵尸订阅占满配额 → **重连永远 429** |
 | 僵尸回收 | 130s 判超龄 | 同上 |
 
-`edgeone.json` 的 `nodeFunctionsConfig.maxDuration = 120` **必须保留**（CI 会检查）。
-它与 `STREAM_MAX_AGE_MS = 100_000` 配套：服务端在平台硬杀前 20s 主动优雅关闭，
-把「平台硬杀」变成「清理必然执行」。
+平台的函数硬上限见 [`DEPLOYMENT.md`](DEPLOYMENT.md) §1.1。
+服务端在硬杀前主动优雅关闭，把「平台硬杀」变成「清理必然执行」；
+具体常量以 `lib/store/constants.ts` 为准。
+
+**通道取道**：客户端用 `POST` 建流（`fetch` + `ReadableStream` 自己解析帧，见 `lib/sse.ts`），
+不用 `EventSource` —— 它只能发 GET，而 Cloudflare Quick Tunnel 会**整段缓冲 GET 的流式响应**，
+帧要攒到连接关闭才吐出，对战页面因此永远收不到实时事件。
+GET 路径仍然保留（同一个 handler），实测判据见 [`API.md`](API.md) §3。
 
 ### 4.1 帧格式
 
@@ -129,7 +133,7 @@ data: <json>
 ```
 
 业务事件的 `event` 名与 `type` 一致；`rotate` 是**独立**事件名（不进入 `RoomEvent` 联合类型），
-用于通知客户端立即静默重连；心跳是注释行 `: ping`，客户端不触发 `message`。
+用于通知客户端立即静默重连；心跳是注释行 `: ping`，解析时跳过、不产生帧（`lib/sse.ts`）。
 
 实现：`lib/events.ts` · `lib/realtime.ts`
 
@@ -153,17 +157,9 @@ data: <json>
 
 ## 5. 凭证与安全
 
-| 机制 | 说明 |
-|---|---|
-| `playerId` | 所有写操作的唯一凭证，只在创建/加入的**私有响应**下发 |
-| `slot` | 对外一律用座位号（`0`=房主，`1`=访客），绝不暴露 `playerId` |
-| Zod 剥离 | 提交体中的未知字段被剥离，客户端伪造 `elapsed` 无效 |
-| 昵称白名单 | `^[\u4e00-\u9fa5A-Za-z0-9_·\- ]+$`，1–12 字符 |
-| 房间码 | 生成固定 **6 位**，字符集 `ABCDEFGHJKMNPQRSTUVWXYZ23456789`（排除 `I/L/O/0/1`）；入参正则 `^[A-HJ-NP-Z2-9]{4,8}$`（未排除 `L`） |
-| 限流 | `lib/rate-limit.ts` |
-
-> 一旦 `playerId` 泄漏进快照或广播，任何订阅者（含第三方观战者）都能冒充该玩家
-> 提交答案、认输、发起再来一局。
+`playerId` 只在创建 / 加入房间的私有响应中下发，对外一律用 `slot`；
+房间码、昵称校验、限流与错误码见 [`API.md`](API.md) §0。
+红线见 [`../AGENTS.md`](../AGENTS.md) §2.3。
 
 ---
 
@@ -176,10 +172,7 @@ content/domains/<id>.json  （磁盘紧凑格式）
 Question[]  （运行时完整格式）
 ```
 
-**磁盘上不存** `domain` / `origin` / `fingerprint` 三个字段 ——
-这样「改了题干忘了更新指纹」这类脏数据**整类消失**。
-
-指纹：题干归一化（**先**全角转半角、英文小写，**再**去空白与标点）后 FNV-1a 32 位哈希，输出 8 位十六进制。
+磁盘格式、加载时注入的字段与指纹规则见 [`CONTENT.md`](CONTENT.md) §1、§7。
 
 实现：`lib/content/fingerprint.ts` · `lib/content/loader.ts`
 
@@ -188,26 +181,22 @@ Question[]  （运行时完整格式）
 ## 7. AI 出题
 
 ```
-provider（OpenAI 兼容 / Ollama）→ prompt → 10 步校验链 → 待审池
+provider（OpenAI 兼容 / Ollama）→ prompt → 校验链 → 待审池
 ```
 
-**10 步**：JSON → schema → domain/topic → 难度 → 答案命中选项 → 歧义句式 →
-解析长度 → 指纹查重 → 近似查重（Jaccard > 0.85）→ 敏感词。
-
+- 校验链细节与内容侧流程见 [`CONTENT.md`](CONTENT.md) §8；
+- 配置与鉴权见 [`DEPLOYMENT.md`](DEPLOYMENT.md) §3、[`API.md`](API.md) §4；
 - 未配置 provider → **503**，主链路完全不受影响；
-- 设置 `AI_ADMIN_TOKEN` 时校验 `x-ai-admin-token`；未设置时仅 `NODE_ENV=development` 可调；
-- **AI 题永不参与每日挑战**（破坏确定性与排行榜公平）。
+- 每日挑战题源边界见 [`../AGENTS.md`](../AGENTS.md) §2.1。
 
 ---
 
 ## 8. 部署形态（双轨）
 
-| 轨道 | 承载 | 平台 | 状态性 |
-|---|---|---|---|
-| **云轨** | 每日挑战、错题本、星图、战绩、影子、段位 | EdgeOne Pages（Node Functions） | 完全无状态 |
-| **本地轨** | 同步抢答 duel | `play-online.bat` + cloudflared 隧道 | 房间态在进程内存 |
+云轨承载每日挑战、错题本、星图、战绩、影子、段位等无状态玩法；
+本地轨承载同步抢答 duel（房间态在进程内存）。
 
-详见 [`DEPLOYMENT.md`](DEPLOYMENT.md)。
+平台约束、部署步骤与隧道操作见 [`DEPLOYMENT.md`](DEPLOYMENT.md)。
 
 ---
 
@@ -216,12 +205,8 @@ provider（OpenAI 兼容 / Ollama）→ prompt → 10 步校验链 → 待审池
 | # | 限制 | 说明 |
 |---|---|---|
 | 1 | **duel 不能上 Serverless** | 房间态在进程内存，多实例不共享 → 状态撕裂。必须走本地隧道。 |
-| 2 | **EdgeOne Node Functions 120s 硬上限** | SSE 必须主动轮换（100s）后再优雅关闭。 |
-| 3 | **Edge Functions（V8）不支持 WebSocket** | 本项目实时用 SSE；Edge Functions 的 CPU 限 200ms、KV 最终一致性 ≤60s，都不适合实时。 |
-| 4 | **AI 出题接口默认关闭** | 需配 provider + `AI_ADMIN_TOKEN`，否则 503。 |
-| 5 | **题库深度** | 每域 40–53 题，每日挑战（5 题/天）在单域上会重复。引擎会兜底重复而非空面。 |
-| 6 | **无账号体系** | 档案/错题/战绩/影子/段位全在 localStorage，换浏览器即丢；清缓存即丢。 |
-| 7 | **npm 12 会拦 `esbuild` / `unrs-resolver` 的 install scripts** | 已实测 `tsx` 与 `node --import tsx --test` 正常工作，不影响工具链。 |
-| 8 | **（已迁出：本机删除工具边界）** | 原先这里是「`rm` 只到会话 workspace 内 / 外部目标改走回收站启动器」。它讲的是**我这台机器的 shell 行为**，不是《通识局》的架构限制，2026-10-20 移到仓库外的个人笔记。空壳保留是为了不打乱本表行号。 |
-| 9 | **（已迁出：目录清点方式）** | 原先这里是「`Get-ChildItem -Recurse -File` 看不到空目录」。同上，属本机工具而非本项目，已一并移出。 |
-| 10 | **无跨设备同步** | 影子对手、段位都是**本地**的 —— 换设备就没有了。这是"零服务端成本"的代价，也是有意的取舍。 |
+| 2 | **SSE 依赖主动轮换** | 平台函数硬上限见 [`DEPLOYMENT.md`](DEPLOYMENT.md) §1.1；服务端必须在硬杀前优雅关闭，否则僵尸订阅会占满配额。 |
+| 3 | **AI 出题接口默认关闭** | 需配 provider；生产环境还需 `AI_ADMIN_TOKEN`，否则 503。 |
+| 4 | **题库深度** | 单域题量不足时，每日挑战（5 题/天）会重复；引擎会兜底重复而非空面（当前题量以 `npm run validate:content` 输出为准）。 |
+| 5 | **无账号体系、无跨设备同步** | 档案 / 错题 / 战绩 / 影子 / 段位全在 localStorage，换浏览器或清缓存即丢；这是零服务端成本的取舍。 |
+| 6 | **npm 12 会拦 `esbuild` / `unrs-resolver` 的 install scripts** | 已实测 `tsx` 与 `node --import tsx --test` 正常工作，不影响工具链。 |

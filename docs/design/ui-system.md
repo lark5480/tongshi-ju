@@ -348,5 +348,4 @@ Canvas 手绘 1200×630，色值取自 §2.1 的 token（Canvas 拿不到 class�
 - [ ] 答题页「一屏 ≤2 个关键动效」没有自动化判据 —— 现状是倒计时脉冲 + 选项反馈 + 解析淡入三者并存，
       需要人判定是否干扰节奏
 - [x] 答对/答错同时具备「颜色 + ✓/✗ 图标 + 文案」三重线索（`QuestionCard` 解析面板）
-- [x] `npm run typecheck` / `npm test` / `npm run validate:content` / `npm run build` 全绿
-      （每次提交前重跑，命令见 [`../TESTING.md`](../TESTING.md) §7）
+- [x] 设计相关改动已通过 CI 的 `verify` 段（命令与判据见 [`../TESTING.md`](../TESTING.md) §7）

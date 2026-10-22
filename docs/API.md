@@ -37,7 +37,7 @@
 
 ### 0.3 凭证（`playerId`）
 
-- `playerId` 是**所有写操作的唯一凭证**。
+- `playerId` 是**房间内写操作**（准备 / 开局 / 答题 / 再来一局）的唯一凭证。
 - 只在**创建 / 加入房间的私有响应**中下发给本人。
 - 快照与 SSE 广播里**绝不出现** `playerId`，对外一律用 `slot`（`0` = 房主，`1` = 访客）。
 - 客户端必须把 `playerId` 按房间码分别存在 localStorage（`lib/storage.ts` 的 `getRoomPlayerId`），
@@ -86,7 +86,7 @@
 | `POST` | `/api/rooms/[code]/start` | 房主开局 | `playerId` |
 | `POST` | `/api/rooms/[code]/answer` | 提交本题答案 | `playerId` |
 | `POST` | `/api/rooms/[code]/rematch` | 房主发起再来一局 | `playerId` |
-| `GET` | `/api/rooms/[code]/stream` | SSE 实时事件流 | 无（只读对外态）；玩家可带 `?playerId=` 上报在线状态 |
+| `GET` / `POST` | `/api/rooms/[code]/stream` | SSE 实时事件流 | 无（只读对外态）；玩家可带 `?playerId=` 上报在线状态 |
 | `POST` | `/api/ai/generate` | AI 出题（管理入口） | `x-ai-admin-token` |
 
 ---
@@ -295,7 +295,18 @@ timeout(408)  →  already_answered  →  round_locked  →  not_answering  → 
 
 ---
 
-## 3. SSE —— `GET /api/rooms/[code]/stream`
+## 3. SSE —— `GET` / `POST /api/rooms/[code]/stream`
+
+两个方法走同一份处理逻辑（`openStream`），行为、响应头、帧格式完全一致，**只是取道不同**：
+
+| 方法 | 谁在用 | 原因 |
+|---|---|---|
+| `POST` | 浏览器客户端 `hooks/useRoomStream.ts`（`fetch` + `ReadableStream` 自己读帧） | Cloudflare Quick Tunnel（`play-online.bat` 给的 `xxx.trycloudflare.com`）**整段缓冲 GET 的流式响应**：实测挂 100 秒 0 字节，直到服务端主动轮换关闭连接才一次性吐出全部帧。同一条隧道上 POST 逐帧实时到达。 |
+| `GET` | 浏览器地址栏 / curl 直接查看当前流 | 只能发 GET 的 `EventSource` 在 quick tunnel 上收不到实时帧，所以**客户端不再使用它**；隧道之外（本机、EdgeOne 云轨）GET 仍可用。 |
+
+> 这是 tunnel 侧的行为，不是本项目能靠响应头拧过来的：
+> 实测去掉 `; charset=utf-8`、把首帧灌到 16KB，GET 依旧被缓冲。
+> 参见 [cloudflared#1449](https://github.com/cloudflare/cloudflared/issues/1449)。
 
 **响应头**
 
@@ -333,22 +344,16 @@ data: <json>
 | `event` | 载荷 | 用途 |
 |---|---|---|
 | `rotate` | `{}` | 服务端主动轮换连接前通知客户端**立即静默重连**（独立事件名，不属于 `RoomEvent`） |
-| （注释行） | `: ping` | 心跳。25s 一次，客户端不会触发 `message` 事件 |
+| （注释行） | `: ping` | 心跳。间隔与轮换参数见 [`ARCHITECTURE.md`](ARCHITECTURE.md) §4；解析时直接跳过，不产生帧 |
 
-建流第一帧还会写 `retry: 5000`（浏览器原生 `EventSource` 的重连保底）；
-本项目客户端自己接管重连（指数退避），见 `hooks/useRoomStream.ts`。
+重连完全由客户端接管（指数退避 3s → 30s，带抖动），见 `hooks/useRoomStream.ts`；
+服务端不再写 `retry:` 帧 —— 那是给 `EventSource` 的原生重连用的，本项目已经不走它。
 连接建立后立刻推一帧 `state` 全量快照，保证重连 / 观战即时同步。
 
 ### 3.3 连接生命周期
 
-| 机制 | 参数 | 不做会怎样 |
-|---|---|---|
-| 心跳 ping | 25s | 中间代理掐断连接 |
-| 主动轮换 | 100s | 平台 120s 硬杀 → `cancel()` 不触发 → 僵尸订阅占满配额 → **重连永远 429** |
-| 僵尸回收 | 130s 判超龄 | 同上 |
-
-> `edgeone.json` 的 `nodeFunctionsConfig.maxDuration = 120` 必须保留（CI 会检查）。
-> 它与 `STREAM_MAX_AGE_MS = 100_000` 配套：服务端在平台硬杀前 20s 主动优雅关闭。
+心跳、主动轮换与僵尸回收的参数和原因见 [`ARCHITECTURE.md`](ARCHITECTURE.md) §4；
+客户端收到 `rotate` 后静默重连即可。
 
 ### 3.4 配额
 
@@ -370,7 +375,8 @@ data: <json>
 
 - 设置了 `AI_ADMIN_TOKEN` 时，校验请求头 `x-ai-admin-token`；
 - 未设置时**仅 `NODE_ENV=development` 可调用**；
-- 未配置 `AI_API_BASE` / `AI_API_KEY` / `AI_MODEL` → 返回 **503**，主链路不受影响。
+- 未配置 provider → 返回 **503**，主链路不受影响。
+  配置键见 [`../.env.example`](../.env.example)，部署说明见 [`DEPLOYMENT.md`](DEPLOYMENT.md) §3。
 
 **入参**
 
@@ -409,14 +415,10 @@ data: <json>
 
 **错误**：`invalid_input`(400) / `unauthorized`(401) / `ai_disabled`(503) / `ai_failed`(502) / 限流 429
 
-**通过 10 步校验链**的题目**只进待审池**，不直接进正式题库；
-**AI 题永不参与每日挑战**（破坏确定性与排行榜公平）。
+**通过校验链**的题目**只进待审池**，不直接进正式题库；题源边界见
+[`../AGENTS.md`](../AGENTS.md) §2.1。
 
-校验链顺序：JSON → schema → domain/topic → 难度 → 答案命中选项 → 歧义句式 →
-解析长度 → 指纹查重 → 近似查重（Jaccard > 0.85）→ 敏感词。
-
-> **查重要查「批次内」的重复**：每接受一题就立刻把它的指纹与 token 索引登记进**可变副本**，
-> 否则同一批次里的两道雷同题会双双通过。
+校验链顺序与批次内查重规则见 [`CONTENT.md`](CONTENT.md) §8。
 
 ---
 

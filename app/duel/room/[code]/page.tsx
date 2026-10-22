@@ -25,13 +25,30 @@ import { domainIcon } from "@/components/domain/DomainCard";
 import { dayKey } from "@/lib/engine/date";
 import { buildDuelSettlement } from "@/lib/engine/duel-settlement";
 import {
+  clearRoomHandoff,
   getDuelSettledMatch,
+  getRoomHandoff,
   getRoomPlayerId,
   pushHistory,
   recordAttempt,
   setDuelSettledMatch,
 } from "@/lib/storage";
 import type { PublicPlayer, RoomSnapshot, Slot } from "@/types";
+
+/**
+ * **良性冲突码** —— 不是错误，只是「这一回合已经过去了」。
+ *
+ * 慢链路（公网隧道 RTT ≈ 1s）下客户端的回合号可能落后服务端一两个回合，
+ * 提交会撞上 `stale_round` / `round_locked` / `already_answered`。
+ * 这类不该弹红色错误条 —— 重连一次拿最新快照即可（SSE 会立刻推全量状态）。
+ */
+const BENIGN_CONFLICT_CODES = new Set([
+  "already_answered",
+  "round_locked",
+  "stale_round",
+  "not_answering",
+  "timeout",
+]);
 
 /**
  * 复制到剪贴板 —— 优先用异步剪贴板 API，
@@ -74,11 +91,11 @@ export default function DuelRoomPage() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [copied, setCopied] = useState(false);
+  /** 提交守卫用 ref（state 异步，同帧双击会漏判）。 */
+  const submittedRef = useRef(false);
 
-  const { snapshot, lastEvent, connecting, reconnecting, serverOffset } = useRoomStream(
-    code,
-    playerId
-  );
+  const { snapshot, lastEvent, connecting, reconnecting, serverOffset, reconnect, seed } =
+    useRoomStream(code, playerId);
 
   // ---- 读取本地凭证 + 确认自己的席位 ----
   useEffect(() => {
@@ -90,22 +107,32 @@ export default function DuelRoomPage() {
     }
     setPlayerId(pid);
 
+    // ① 大厅交接过来的快照：直接出画面（慢链路下省一个往返）
+    const handoff = getRoomHandoff(code);
+    if (handoff) {
+      seed(handoff);
+      clearRoomHandoff(code);
+    }
+
+    // ② 同时拉一次权威快照：兜底 + 拿自己的席位
     void (async () => {
       try {
         const res = await fetch(`/api/rooms/${code}?playerId=${encodeURIComponent(pid)}`, {
           cache: "no-store",
         });
         if (!res.ok) {
-          setError("房间不存在或已结束。");
+          setError((prev) => prev ?? "房间不存在或已结束。");
           return;
         }
         const data = await res.json();
         if (data.you) setMySlot(data.you.slot);
+        // 已有快照（SSE 或交接来的）时不覆盖 —— 避免旧数据把新状态盖回去
+        if (data.room) seed(data.room);
       } catch {
         /* 等待 SSE 补齐 */
       }
     })();
-  }, [code]);
+  }, [code, seed]);
 
   const status = snapshot?.status ?? "lobby";
   const roundIndex = snapshot?.roundIndex ?? 0;
@@ -125,6 +152,15 @@ export default function DuelRoomPage() {
         ? (snapshot?.nextAt ?? null)
         : null;
   const { seconds, remaining } = useCountdown(deadline, serverOffset);
+
+  /**
+   * 本地判定「这一题已经到时间了」。
+   *
+   * 服务端计时是权威的，但答案要**送过去**才判得出 —— 慢链路下
+   * 最后 1 秒的点击必然迟到（408/409）。倒计时归零后直接禁答：
+   * 既少制造无谓冲突，也避免玩家以为「我答了却没算分」。
+   */
+  const expired = status === "question" && seconds <= 0;
 
   // ---- 事件驱动的瞬时反馈 ----
   const [opponentAnswered, setOpponentAnswered] = useState(false);
@@ -149,6 +185,7 @@ export default function DuelRoomPage() {
   useEffect(() => {
     if (seenRoundRef.current === roundIndex) return;
     seenRoundRef.current = roundIndex;
+    submittedRef.current = false;
     setSubmitted(false);
     setPicked("");
     setOpponentAnswered(false);
@@ -184,7 +221,7 @@ export default function DuelRoomPage() {
   // ---- 动作 ----
   const post = useCallback(
     async (path: string, body: Record<string, unknown>) => {
-      if (!playerId) return null;
+      if (!playerId) return { ok: false, benign: false };
       setBusy(true);
       setError(null);
       try {
@@ -194,16 +231,23 @@ export default function DuelRoomPage() {
           body: JSON.stringify({ playerId, ...body }),
         });
         const data = await res.json();
-        if (!res.ok) throw new Error(data.error ?? "操作失败");
-        return data;
+        if (!res.ok) {
+          // 良性冲突：不弹错误条，重连一次让 SSE 推来最新快照即可
+          if (BENIGN_CONFLICT_CODES.has(data.code)) {
+            reconnect();
+            return { ok: false, benign: true };
+          }
+          throw new Error(data.error ?? "操作失败");
+        }
+        return { ok: true, benign: false };
       } catch (e) {
         setError((e as Error).message);
-        return null;
+        return { ok: false, benign: false };
       } finally {
         setBusy(false);
       }
     },
-    [code, playerId]
+    [code, playerId, reconnect]
   );
 
   const toggleReady = () => post("ready", { ready: !me?.ready });
@@ -211,7 +255,7 @@ export default function DuelRoomPage() {
   const rematch = () => post("rematch", {});
 
   const pick = (option: string) => {
-    if (submitted || !currentQuestion) return;
+    if (submitted || !currentQuestion || expired) return;
     if (currentQuestion.type === "multi") {
       setPicked((prev) => {
         const list = Array.isArray(prev) ? prev : prev ? [prev] : [];
@@ -225,11 +269,15 @@ export default function DuelRoomPage() {
   };
 
   const submitAnswer = async (answer: string | string[]) => {
-    if (submitted) return;
+    // **用 ref 而不是 state 做守卫**：state 是异步的，同一帧内的双击
+    // 会两次读到 submitted=false，发出两次请求 → 服务端回 409 already_answered。
+    if (submittedRef.current) return;
+    submittedRef.current = true;
     setSubmitted(true);
     const res = await post("answer", { roundIndex, answer });
-    if (!res) {
-      // 提交失败：允许重试（服务端幂等，不会重复计分）
+    // 真失败才允许重试；良性冲突说明这一回合已经过去了，等 SSE 推下一题
+    if (res && !res.ok && !res.benign) {
+      submittedRef.current = false;
       setSubmitted(false);
     }
   };
@@ -258,7 +306,19 @@ export default function DuelRoomPage() {
     );
   }
 
-  if (!snapshot) return null;
+  if (!snapshot) {
+    // 没有快照时给明确的加载态，而不是渲染 null —— 后者是一片空白，
+    // 用户会以为页面坏了（慢链路下这段空白特别显眼）。
+    return (
+      <div
+        className="flex h-64 flex-col items-center justify-center gap-2 text-muted"
+        aria-busy="true"
+      >
+        <RefreshCw size={20} className="animate-pulse-soft" aria-hidden />
+        <span>正在进入房间…</span>
+      </div>
+    );
+  }
 
   const shareUrl =
     typeof window !== "undefined" ? `${window.location.origin}/duel/room/${code}` : "";
@@ -511,7 +571,7 @@ export default function DuelRoomPage() {
                     key={opt}
                     type="button"
                     className="option-btn"
-                    disabled={submitted}
+                    disabled={submitted || expired}
                     onClick={() => pick(opt)}
                   >
                     <span className="flex items-center gap-2.5">
@@ -536,7 +596,7 @@ export default function DuelRoomPage() {
               <Button
                 block
                 onClick={() => submitAnswer(picked)}
-                disabled={(Array.isArray(picked) ? picked.length : 0) === 0 || busy}
+                disabled={expired || (Array.isArray(picked) ? picked.length : 0) === 0 || busy}
               >
                 确认作答
               </Button>

@@ -5,8 +5,31 @@ import { useRouter } from "next/navigation";
 import { Check, Copy, Rocket, Share2, Swords, Users } from "lucide-react";
 
 import { Button } from "@/components/ui/Button";
-import { getProfile, setRoomPlayerId } from "@/lib/storage";
+import { getProfile, setRoomHandoff, setRoomPlayerId } from "@/lib/storage";
 import { DOMAINS } from "@/content/domains";
+
+/**
+ * 预取房间快照 —— 与页面跳转**并行**发起，不 await。
+ *
+ * 慢链路（公网隧道 RTT ≈ 1s）下，「跳转 → 拉快照」串行要两个往返；
+ * 并行之后房间页通常能直接拿到现成快照出画面，首屏少等一个往返。
+ * 失败无所谓 —— 房间页自己还会再拉一次权威快照。
+ */
+function prefetchRoomSnapshot(code: string, playerId: string): void {
+  void (async () => {
+    try {
+      const res = await fetch(
+        `/api/rooms/${encodeURIComponent(code)}?playerId=${encodeURIComponent(playerId)}`,
+        { cache: "no-store" }
+      );
+      if (!res.ok) return;
+      const data = await res.json();
+      if (data?.room) setRoomHandoff(code, data.room);
+    } catch {
+      /* 预取失败不影响主流程 */
+    }
+  })();
+}
 
 /**
  * 复制到剪贴板 —— 优先用异步剪贴板 API，
@@ -70,6 +93,7 @@ export default function DuelLobbyPage() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "创建房间失败");
       setRoomPlayerId(data.code, data.playerId);
+      prefetchRoomSnapshot(data.code, data.playerId);
       router.push(`/duel/room/${data.code}`);
     } catch (e) {
       setError((e as Error).message);
@@ -89,6 +113,7 @@ export default function DuelLobbyPage() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "加入房间失败");
       setRoomPlayerId(data.code, data.playerId);
+      prefetchRoomSnapshot(data.code, data.playerId);
       router.push(`/duel/room/${data.code}`);
     } catch (e) {
       setError((e as Error).message);

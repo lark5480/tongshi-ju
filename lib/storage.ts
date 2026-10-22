@@ -14,6 +14,7 @@ import type {
   HistoryEntry,
   MasteryMap,
   Profile,
+  RoomSnapshot,
   WrongEntry,
 } from "@/types";
 import type { GhostRecord } from "@/lib/engine/ghost";
@@ -374,4 +375,52 @@ export function setRoomPlayerId(code: string, playerId: string): void {
 
 export function clearRoomPlayerId(code: string): void {
   removeKey(`playerId.${code.toUpperCase()}`);
+}
+
+// ---------------------------------------------------------------- 首屏快照交接
+
+/**
+ * 房间快照交接 —— 大厅创建/加入后**预取**快照，房间页直接取来渲染。
+ *
+ * ## 为什么需要
+ *
+ * 慢链路（公网隧道 RTT ≈ 1s）下，「创建房间 → 跳转 → 首屏出画面」本来要**串行**等：
+ * 跳转拉 RSC 载荷（1 个 RTT）→ 页面挂载 → 再拉快照（1 个 RTT）。
+ * 大厅把「预取快照」与「跳转」**并行**发起，房间页通常能拿到现成快照直接出画面，
+ * 首屏因此少等一个往返。
+ *
+ * ## 为什么存 sessionStorage
+ *
+ * 只服务「本标签页刚创建/加入」这一种场景，按标签页隔离，
+ * 不会把上一个房间的快照带到新标签页。
+ */
+const handoffKey = (code: string) => `roomHandoff.${code.toUpperCase()}`;
+
+/** 写入交接快照（只在本标签页生效）。 */
+export function setRoomHandoff(code: string, snapshot: RoomSnapshot): void {
+  try {
+    window.sessionStorage.setItem(handoffKey(code), JSON.stringify(snapshot));
+  } catch {
+    /* 隐私模式 / 配额满：忽略，预取失败不影响主流程 */
+  }
+}
+
+/** 读取交接快照；没有或已损坏返回 null。 */
+export function getRoomHandoff(code: string): RoomSnapshot | null {
+  try {
+    const raw = window.sessionStorage.getItem(handoffKey(code));
+    if (!raw) return null;
+    return JSON.parse(raw) as RoomSnapshot;
+  } catch {
+    return null;
+  }
+}
+
+/** 用掉交接快照（读一次即失效，避免旧快照闪现）。 */
+export function clearRoomHandoff(code: string): void {
+  try {
+    window.sessionStorage.removeItem(handoffKey(code));
+  } catch {
+    /* 忽略 */
+  }
 }
