@@ -40,6 +40,8 @@
 
 **没有服务端参与，也没有对应 API** —— `app/api/` 下只有房间（duel）与 AI 出题两类路由。
 「同一份代码」靠的是 `lib/engine/*` 同时被客户端与服务端 import（duel 服务端抽题用的就是 `buildDailySet`）。
+`buildDailySet` 还会用「局种子 + 题目 id」派生独立 PRNG 打乱选项（`lib/engine/options.ts`），
+同一题 + 同一 seed 在客户端 / 服务端 / PK 双方得到同一顺序。
 
 因此：
 

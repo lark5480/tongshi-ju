@@ -117,6 +117,88 @@ test("显式 seed 优先于 dateKey（duel 用房间种子）", () => {
   );
 });
 
+test("选项顺序确定，且答案仍在选项中", () => {
+  const pool = makePool(DOMS, 40);
+  const a = buildDailySet({ dateKey: "2026-10-20", domains: DOMS, pool });
+  const b = buildDailySet({ dateKey: "2026-10-20", domains: DOMS, pool });
+
+  assert.deepEqual(
+    a.map((p) => p.question.options),
+    b.map((p) => p.question.options),
+    "同一题集必须得到同一选项顺序"
+  );
+  for (const pick of a) {
+    const answers = Array.isArray(pick.question.answer)
+      ? pick.question.answer
+      : [pick.question.answer];
+    for (const answer of answers) {
+      assert.ok(pick.question.options.includes(answer), `选项里找不到答案 ${answer}`);
+    }
+  }
+});
+
+test("选项会随种子变化：不会所有题永远把答案放首位", () => {
+  const pool = makePool(DOMS, 40);
+  let shifted = 0;
+
+  for (let day = 1; day <= 30; day++) {
+    const dateKey = `2026-11-${String(day).padStart(2, "0")}`;
+    const picks = buildDailySet({ dateKey, domains: DOMS, pool });
+    for (const pick of picks) {
+      const answer = Array.isArray(pick.question.answer)
+        ? pick.question.answer[0]
+        : pick.question.answer;
+      if (pick.question.options[0] !== answer) shifted++;
+    }
+  }
+
+  assert.ok(shifted > 0, "选项顺序应随日期种子变化");
+});
+
+test("显式 seed 下选项顺序一致（duel / PK 共用）", () => {
+  const pool = makePool(DOMS, 40);
+  const a = buildDailySet({ dateKey: "x", domains: DOMS, pool, seed: 12345 });
+  const b = buildDailySet({ dateKey: "y", domains: DOMS, pool, seed: 12345 });
+
+  assert.deepEqual(
+    a.map((p) => p.question.options),
+    b.map((p) => p.question.options),
+    "同一 seed 必须得到同一选项顺序"
+  );
+});
+
+test("allowedTypes 过滤题型：duel 可排除多选", () => {
+  const pool = makePool(["gaming"], 12);
+  const questions = pool.gaming ?? [];
+
+  // 把前 8 题改成多选，确保两种题型都有足够候选
+  for (let i = 0; i < 8; i++) {
+    questions[i].type = "multi";
+    questions[i].options = ["甲", "乙", "丙", "丁"];
+    questions[i].answer = ["乙", "甲"];
+  }
+
+  const singles = buildDailySet({
+    dateKey: "x",
+    domains: ["gaming"],
+    pool,
+    count: 5,
+    allowedTypes: ["single", "judge"],
+  });
+  const multis = buildDailySet({
+    dateKey: "x",
+    domains: ["gaming"],
+    pool,
+    count: 5,
+    allowedTypes: ["multi"],
+  });
+
+  assert.equal(singles.length, 5);
+  assert.ok(singles.every((p) => p.question.type !== "multi"));
+  assert.equal(multis.length, 5);
+  assert.ok(multis.every((p) => p.question.type === "multi"));
+});
+
 test("题量不足时允许重复兜底，绝不返回空", () => {
   const pool = makePool(["gaming"], 2);
   const picks = buildDailySet({ dateKey: "2026-10-20", domains: ["gaming"], pool, count: 5 });

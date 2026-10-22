@@ -13,6 +13,7 @@
  * 4. 第 i 题取自 `order[i % order.length]`
  * 5. 域内按 PRNG 取未出过的题；优先匹配难度曲线，不足则放宽
  * 6. 最后一题为「彩蛋题」：取自与上一题**不同**的领域（仍在所选领域内），制造换域节奏
+ * 7. 选项顺序用「局种子 + question.id」派生独立 PRNG 打乱，不消耗抽题 PRNG
  *
  * ## 为什么领域要先规范化排序
  *
@@ -23,8 +24,9 @@
  * **与输入顺序无关**。
  */
 
-import type { Difficulty, DomainId, Question } from "@/types";
+import type { Difficulty, DomainId, Question, QuestionType } from "@/types";
 import { hashSeed, mulberry32, pickOne, shuffled } from "./prng";
+import { shuffleOptions } from "./options";
 
 export const DEFAULT_DAILY_COUNT = 5;
 
@@ -101,6 +103,23 @@ export interface BuildDailyParams {
    * 保证双方从同一 seed 派生同一份题序。
    */
   seed?: number;
+  /**
+   * 只允许这些题型；缺省不过滤。
+   * duel 传 `["single", "judge"]`，避免多选拖慢抢答节奏。
+   */
+  allowedTypes?: readonly QuestionType[];
+}
+
+/** 按题型过滤题池；不修改原池。 */
+function filterPoolByTypes(
+  pool: Partial<Record<DomainId, Question[]>>,
+  allowedTypes: readonly QuestionType[]
+): Partial<Record<DomainId, Question[]>> {
+  const out: Partial<Record<DomainId, Question[]>> = {};
+  for (const domain of Object.keys(pool) as DomainId[]) {
+    out[domain] = (pool[domain] ?? []).filter((q) => allowedTypes.includes(q.type));
+  }
+  return out;
 }
 
 /**
@@ -113,7 +132,10 @@ export interface BuildDailyParams {
  * - 全部为空 → 返回空数组（由调用方给出「该领域题库准备中」的提示）。
  */
 export function buildDailySet(params: BuildDailyParams): DailyPick[] {
-  const { dateKey, pool } = params;
+  const { dateKey } = params;
+  const pool = params.allowedTypes
+    ? filterPoolByTypes(params.pool, params.allowedTypes)
+    : params.pool;
   const count = Math.max(1, params.count ?? DEFAULT_DAILY_COUNT);
 
   // 先规范序：领域是**集合**，与用户点选顺序无关
@@ -155,7 +177,11 @@ export function buildDailySet(params: BuildDailyParams): DailyPick[] {
     picks.push({ question: q, isEgg, index: picks.length });
   }
 
-  return picks;
+  // 选项顺序也参与确定性：同一题 + 同一 seed 在客户端 / 服务端 / PK 双方一致。
+  return picks.map((pick) => ({
+    ...pick,
+    question: shuffleOptions(pick.question, seed),
+  }));
 }
 
 /** 域内取题：优先匹配难度 → 放宽到任意难度 → 允许重复。 */

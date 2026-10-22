@@ -50,7 +50,16 @@ blindboxSeed = hashSeed("blindbox:" + dateKey)
 2. 领域轮转顺序 = 对**可用**领域做 Fisher-Yates 洗牌；
 3. 第 `i` 题取自 `order[i % order.length]`；
 4. 域内按 PRNG 取**未出过的**题，优先匹配难度曲线，不足则放宽；
-5. **末位为「彩蛋题」**：取自与上一题**不同**的领域（仍在所选领域内）。
+5. **末位为「彩蛋题」**：取自与上一题**不同**的领域（仍在所选领域内）；
+6. 选项顺序用「局种子 + `question.id`」派生**独立** PRNG 做 Fisher-Yates 洗牌。
+   独立 PRNG 不消耗抽题 PRNG，因此不改变选中的题目；同一题 + 同一 seed
+   在客户端、服务端与 PK 双方得到**同一顺序**。
+
+> 题库里的正确项位置不参与出题逻辑。选项打乱由引擎负责，见
+> `lib/engine/options.ts` 与 [`CONTENT.md`](CONTENT.md) §4.3。
+
+`buildDailySet` 还支持 `allowedTypes` 过滤题型：**duel 固定传 `["single", "judge"]`**，
+多选只进入每日挑战与同题 PK。
 
 **难度曲线**（5 题时为 `1,1,2,2,3`）：
 
@@ -373,6 +382,7 @@ PK 领域         = pickDomainsBySeed(hashSeed("pk-domains:" + dateKey + ":" + n
 
 **「同题」的全部秘密**：`buildDailySet` 本来就支持显式 seed（duel 已在用），
 PK 只是把 seed 的来源换成「日期 + 码」的哈希。两个人各自本地跑一遍，得到完全相同的题。
+选项顺序同样由「seed + `question.id`」派生，双方看到的排列也一致。
 
 > ⚠️ **候选池的顺序参与洗牌**。所以「扩池」（新增领域）会改变所有 PK 局的题目 —— 这是预期行为。
 

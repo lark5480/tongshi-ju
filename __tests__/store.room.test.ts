@@ -135,6 +135,19 @@ test("开局后题目按房主领域生成，双方一致", () => {
   }
 });
 
+test("duel 题池排除多选，抢答只出单选/判断", () => {
+  const host = createRoom({ name: "小明", emoji: "🧠", domains: ["auto", "film"] });
+  const guest = joinRoom({ code: host.code, name: "小红", emoji: "🔥" });
+  setReady(host.code, host.playerId, true);
+  setReady(host.code, guest.playerId, true);
+  const snap = startRoom(host.code, host.playerId);
+
+  assert.ok(snap.questions.length > 0);
+  for (const q of snap.questions) {
+    assert.notEqual(q.type, "multi", `duel 不应出现多选：${q.id}`);
+  }
+});
+
 test("快照里的题目序列在双方视角完全相同", () => {
   const host = createRoom({ name: "小明", emoji: "🧠", domains: ["gaming", "tech"] });
   const guest = joinRoom({ code: host.code, name: "小红", emoji: "🔥" });
