@@ -7,6 +7,7 @@ import {
   createRoom,
   getSnapshot,
   joinRoom,
+  setConnected,
   setReady,
   startRoom,
   submitAnswer,
@@ -128,6 +129,46 @@ test("答错不锁定回合，对手仍可作答", () => {
   });
   assert.equal(res2.correct, true);
   assert.equal(res2.winnerSlot, 1);
+});
+
+test("双方都答错 → 立即结算，不空等剩余读秒", () => {
+  const f = startDuel();
+  const wrong = wrongAnswer(f.code);
+  const before = getSnapshot(f.code)!;
+  const deadline = before.deadlineAt!;
+
+  submitAnswer({ code: f.code, playerId: f.hostId, roundIndex: 0, answer: wrong });
+  // 对手还没答 → 回合必须还开着：那是他的机会，不能被抢走
+  assert.equal(getSnapshot(f.code)!.status, "question");
+
+  submitAnswer({ code: f.code, playerId: f.guestId, roundIndex: 0, answer: wrong });
+
+  const snap = getSnapshot(f.code)!;
+  assert.equal(snap.status, "feedback", "全员已作答且无人答对 → 应立即结算");
+  assert.ok(Date.now() < deadline, "结算应早于 deadlineAt，否则就是等读秒耗尽");
+
+  const record = snap.history[snap.history.length - 1];
+  assert.equal(record.winnerSlot, null, "无人答对 → 没有赢家");
+  assert.equal(record.points["0"], 0);
+  assert.equal(record.points["1"], 0);
+  // 双方都真的答过（不是超时未答），elapsed 必须都有值
+  assert.notEqual(record.elapsed["0"], null);
+  assert.notEqual(record.elapsed["1"], null);
+});
+
+test("对手掉线且未作答 → 仍按 deadline 读秒，不提前结算", () => {
+  const f = startDuel();
+  setConnected(f.code, f.guestId, false);
+
+  submitAnswer({
+    code: f.code,
+    playerId: f.hostId,
+    roundIndex: 0,
+    answer: wrongAnswer(f.code),
+  });
+
+  // 掉线不改变判据：未作答的一方仍然握着这一题的机会
+  assert.equal(getSnapshot(f.code)!.status, "question");
 });
 
 test("每人每题只能提交一次（重复提交被拒）", () => {

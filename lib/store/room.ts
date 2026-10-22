@@ -334,10 +334,24 @@ function finishRoom(room: RoomStateInternal, reason: string): void {
 // ---------------------------------------------------------------- 结算
 
 /**
+ * 是否每个席位都已作答 —— 「双方都答错就立即结算」的判据。
+ *
+ * 只看 `room.players`（1v1 固定两席），**不看 `connected`**：
+ * 掉线的一方仍然握着作答机会，不该因为掉线让回合被提前跳过。
+ */
+function allPlayersAnswered(room: RoomStateInternal): boolean {
+  for (const p of Object.values(room.players)) {
+    if (!room.answered[p.id]) return false;
+  }
+  return true;
+}
+
+/**
  * 结算一个回合。
  *
- * @param winnerId 抢先答对的玩家；null = 无人答对（超时）
- * @param timedOut 是否因超时结束
+ * @param winnerId 抢先答对的玩家；null = 无人答对
+ * @param timedOut 本回合是否因**读秒耗尽**结束 —— 它只用来给「未作答的人」归零连击；
+ *                 双方都答错而提前结算时传 `false`（没人超时，也没人未作答）
  */
 function settleRound(
   room: RoomStateInternal,
@@ -744,6 +758,12 @@ export function submitAnswer(params: {
     room.combos[params.playerId] = 0;
     const wrongPlayer = room.players[params.playerId];
     if (wrongPlayer) wrongPlayer.combo = 0; // 同步镜像
+
+    // 「等待对手」这条规则的前提是**对手还没答**。等双方都答完且都错时，
+    // 每人一题只有一次机会，剩下的读秒不可能再改变任何结果 —— 空等只是空等，
+    // 所以立即结算。判据与「掉线仍照等」的裁定见 docs/PRD.md §5.2。
+    if (allPlayersAnswered(room)) settleRound(room, null, now, false);
+
     broadcastState(room);
     return { ok: true, correct: false, winnerSlot: null };
   }
