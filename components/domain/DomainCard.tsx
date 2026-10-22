@@ -129,9 +129,6 @@ export function DomainCard({ domain, selected, mastery, onToggle, disabled }: Do
                 style={i < stars ? { background: domain.color } : undefined}
               />
             ))}
-            {domain.batch > 1 && (
-              <span className="ml-1 text-[10px] text-muted">第 {domain.batch} 批</span>
-            )}
           </div>
         </div>
       </div>
