@@ -34,9 +34,14 @@ export default defineConfig({
   webServer: {
     command: `npm run dev -- -p ${PORT}`,
     url: baseURL,
+    // e2e 用**自己的**产物目录：不与本机开发服务器（.next-dev）、生产构建（.next）共用，
+    // 否则两边同时写一个目录会互相覆盖，e2e 还会被脏目录拖慢（首请求实测可到 112 秒）。
+    env: { ...process.env, NEXT_DIST_DIR: ".next-e2e" },
     // 本机允许复用已在跑的 dev 服务；CI 必须自己起，否则端口上是别人的东西
     reuseExistingServer: !process.env.CI,
-    timeout: 120_000,
+    // Windows 本机首次 `next dev` 冷启动要 1~2 分钟（Defender 扫描构建目录），
+    // 300s 留足余量；CI 的 Linux runner 冷启动十几秒，不受影响。
+    timeout: 300_000,
     stdout: "ignore",
     stderr: "pipe",
   },

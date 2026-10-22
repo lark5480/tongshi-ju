@@ -5,6 +5,9 @@ node_modules
 
 # next.js
 .next/
+.next-dev/
+.next-e2e/
+.next-online/
 out/
 build/
 dist/

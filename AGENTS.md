@@ -6,6 +6,8 @@
 
 **项目**：《通识局》/ `tongshi-ju` —— 12 域通识知识闯关 + 好友同步抢答对战
 **目录**：`F:/other/code/ai/tongshi-ju`
+**远端**：`github.com/lark5480/tongshi-ju` —— MIT 许可，**公开仓库**
+**分支**：`dev` 开发 → PR → `master`（GitHub 默认分支）；**不直推 `master`**
 
 ---
 
@@ -58,16 +60,21 @@ Next.js 14 (App Router) · React 18 · TypeScript 5.5 · Tailwind 3 · SSE
 
 ```
 app/         页面与 API 路由（App Router）：/ · /daily · /domains · /pk · /duel · /map · /wrong · /wrong/practice · /history
+             API 在 app/api：rooms/[code]/{answer,join,ready,rematch,start,stream} · ai/generate
 components/  ui / domain / quiz / result
 hooks/       useCountdown · useRoomStream · useDailyChallenge · usePkChallenge
+types/       index.ts —— 全局共享类型（内部态 Question / 对外态 QuestionMeta · RoomSnapshot）
 lib/engine/  纯函数：prng · date · answer · scoring · daily · repetition · practice · rank · ghost · blindbox · pk · duel-settlement
 lib/store/   房间状态机 · 常量 · 入参校验
+lib/api/     respond.ts（统一响应封装）
 lib/ai/      provider · prompt · 10 步校验链 · 去重
 lib/content/ fingerprint · loader · server-bank · sensitive（内容安全词表）
 content/domains/  12 域元数据 + 12 个题库 JSON
 scripts/     validate-content.ts
 __tests__/   单元测试（单星 glob，必须平铺）
-e2e/         Playwright 浏览器冒烟（daily / pk / duel / 窄屏）
+e2e/         Playwright 浏览器冒烟（daily / pk / duel / practice / responsive 窄屏）
+.github/workflows/ci.yml  CI：verify + e2e 两段（见 §7）
+edgeone.json / vercel.json  双轨部署配置（EdgeOne Pages 当前云轨 / Vercel 备选）
 docs/        PRD · 架构 · 业务规则 · API · 内容 · 测试 · 设计 · 部署 · 团队 · 调研
 ```
 
@@ -77,19 +84,38 @@ docs/        PRD · 架构 · 业务规则 · API · 内容 · 测试 · 设计 
 
 ```bash
 npm install
-npm run dev            # 本地开发 :3000
+npm run dev            # 本地开发 :3000（产物在 .next-dev）
 npm run dev:lan        # 监听 0.0.0.0（局域网联机调试）
 
 npm run typecheck          # tsc --noEmit
 npm test                   # node --import tsx --test __tests__/*.test.ts（纯函数层 + 服务端）
 npm run test:e2e           # Playwright 浏览器冒烟（自己起 next dev -p 3100，跑完关闭）
 npm run validate:content   # 题库校验（含内容安全词表）
-npm run build              # next build（须在 dev / e2e 停下之后再跑，两者共用 .next）
+npm run build              # next build（生产产物在 .next）
 npm run lint               # next lint
 npm run format:check       # prettier --check .
 ```
 
+**四套产物目录互不重叠**（`next.config.mjs` 的 `distDir`，`NEXT_DIST_DIR` 可显式覆盖）：
+
+| 场景 | 目录 |
+|---|---|
+| `npm run dev` | `.next-dev` |
+| `npm run build` / `npm start` | `.next` |
+| `npm run test:e2e` | `.next-e2e` |
+| `play-online.ps1` | `.next-online` |
+
+> **绝不能让 dev 和 build 共用一个目录**：build 会冲掉 dev 的 chunk（→ 部分页面 500）；
+> 反过来，dev 启动时若目录里躺着上次的生产构建，首个请求要 1~2 分钟才出页面
+> （实测 112~124 秒，表现为「打开页面半天不出来」）。
+
 联机对战：双击 `play-online.bat`（构建 → 启动 → cloudflared 隧道 → 复制公网链接）。
+它把产物放进独立的 `.next-online`（`NEXT_DIST_DIR`），**不会和正在跑的 `next dev` 抢 `.next`**。
+
+本地复现 CI 的 `verify` 段（顺序与 `.github/workflows/ci.yml` 一致）：
+```bash
+npm run lint && npm run format:check && npm run typecheck && npm run validate:content && npm test && npm run build
+```
 
 ---
 
@@ -123,3 +149,31 @@ npm run format:check       # prettier --check .
    架构进 ARCHITECTURE、部署进 DEPLOYMENT），**理由**写在该文档的决策小节里。
    原始调研依据留在 `docs/research/`。**不要**为决策新建独立文档 —— 同一个事实有两个真相来源，
    迟早会打架。
+
+---
+
+## 7. 仓库与流水线
+
+**分支**：`dev` 是开发主干，`master` 是 GitHub 默认分支（发布口径）。
+改动一律在 `dev` 上做 → 提 PR → 合入 `master`；**不直推 `master`**。
+
+**CI**（`.github/workflows/ci.yml`，push / PR 到 `master` / `main` / `dev` 均触发，同分支新提交自动取消旧任务）：
+
+```
+verify ：lint → format:check → typecheck → validate:content → edgeone.json 检查 → test → build
+e2e    ：needs: verify → 装 chromium → npm run test:e2e（失败时上传 report 与 trace，保留 7 天）
+```
+
+**CI 绿灯 = 可合并判据**。`e2e` 起的是临时 `next dev -p 3100`，不碰生产构建产物；
+改动 `hooks/**`、`components/quiz/**`、`app/{daily,pk,duel}/**` 必须有对应用例守着
+（判据见 `docs/TESTING.md` §5.4 与 `docs/TEAM.md` AT-03 出口条件）。
+
+**公开仓库纪律**：
+
+- 仓库**已公开**，凭证、真实用户数据、内部地址一律不得入库。
+  提交前用 `git ls-files` 自查有没有 `.env`、构建产物（`.next/`、`test-results/`、`*.tsbuildinfo`）被跟踪。
+- `edgeone.json` 的 `nodeFunctionsConfig.maxDuration=120` 有 CI 步骤专门卡住 —— **别删、别降**。
+- `vercel.json` 是**备选路径**（SSE 路由 `maxDuration=60`）。真要上 Vercel，
+  `STREAM_MAX_AGE_MS` / `PING_INTERVAL_MS` / `STALE_SUBSCRIBER_MS` 三个值必须一起下调
+  （`lib/store/constants.ts`），并同步 `docs/DEPLOYMENT.md` §1.1 与 ARCHITECTURE §4 的参数表 ——
+  只改一个等于没改。

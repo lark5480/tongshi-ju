@@ -43,6 +43,9 @@ npm run dev
 双击 **`play-online.bat`** —— 脚本会自动构建、启动服务、建立 cloudflared 隧道，
 并把公网链接复制到剪贴板。把链接发给朋友，两人在对战页输入同一个房间码即可。
 
+> 联机通道用独立的 `.next-online` 产物目录，**和你正在跑的 `npm run dev` 不冲突**，两边可以同时开。
+> `cloudflared.exe` 已放在项目根目录，脚本优先用它。
+> 端口被占用时脚本会自动换一个空闲端口。
 > 局域网内调试可用 `npm run dev:lan`（监听 `0.0.0.0`）。
 > 部署细节见 [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md)。
 
@@ -140,7 +143,7 @@ npm run format:check     # Prettier
 | [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) | 运维 | 双轨部署手册 |
 | [`docs/TEAM.md`](docs/TEAM.md) | 全员 | 产品生产团队的角色与流水线 |
 | [`docs/research/`](docs/research/) | 产品 | 竞品拆解与差异化机制候选（带日期的调研快照） |
-| [`AGENTS.md`](AGENTS.md) | AI | 架构红线、技术栈、极简命令 |
+| [`AGENTS.md`](AGENTS.md) | AI | 架构红线、技术栈、极简命令、仓库与流水线 |
 
 ---
 
@@ -153,7 +156,7 @@ npm run format:check     # Prettier
 ✅ AI 出题管线（10 步校验链 + 待审池）· 人工题库内容安全卡口
 ✅ 浏览器冒烟（Playwright）：daily / PK / duel 双人回合 / 错题复习 / 360px 窄屏，本机 16 条全绿
 ✅ 流水线已在 GitHub Actions 实跑通过：`verify`（lint / format / typecheck / 题库校验 / 单测 / 构建）
-→ `e2e`（Playwright 浏览器冒烟），顶部徽章即其状态
+✅ `e2e`（Playwright 浏览器冒烟）也已在 CI 实跑通过 —— 16 条全绿，顶部徽章即其状态
 ✅ 到期错题独立复习流：`/wrong` → 开始复习，只推进错题间隔（不计分 / 战绩 / 段位）
 ✅ duel 结算落本地档案：history（含房间码）+ 熟练度 + 错题本；不写 streak / 段位
 ⬜ 待审池运营界面 · 题库深度（每域 40 → 60）
