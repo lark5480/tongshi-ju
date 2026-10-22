@@ -540,6 +540,46 @@
       "options": ["查询字符串", "路径", "协议", "锚点"],
       "answer": "查询字符串",
       "explanation": "`?` 之后是 query string，`#` 之后是 fragment（锚点），两者都不会被发送到服务器（fragment 除外）。"
+    },
+    {
+      "id": "coding-0047",
+      "topic": "算法与复杂度",
+      "difficulty": 3,
+      "type": "single",
+      "stem": "在基于比较的排序算法中，最坏情况下的时间复杂度下界是？",
+      "options": ["O(n log n)", "O(n)", "O(n²)", "O(log n)"],
+      "answer": "O(n log n)",
+      "explanation": "比较排序的判定树下界为 Ω(n log n)，归并排序和堆排序都能达到这个量级。"
+    },
+    {
+      "id": "coding-0048",
+      "topic": "网络与协议",
+      "difficulty": 3,
+      "type": "single",
+      "stem": "TCP 三次握手中，客户端发送的第一个报文段通常设置哪个标志位？",
+      "options": ["SYN", "ACK", "FIN", "RST"],
+      "answer": "SYN",
+      "explanation": "客户端首先发送 SYN 报文请求建立连接，服务端以 SYN+ACK 回应，客户端再发送 ACK 完成三次握手。"
+    },
+    {
+      "id": "coding-0049",
+      "topic": "数据结构",
+      "difficulty": 3,
+      "type": "multi",
+      "stem": "以下哪些属于平衡二叉搜索树？",
+      "options": ["AVL 树", "红黑树", "二叉堆", "B 树"],
+      "answer": ["AVL 树", "红黑树"],
+      "explanation": "AVL 树和红黑树都是带平衡机制的二叉搜索树；二叉堆满足堆序但不是二叉搜索树，B 树是多路平衡树。"
+    },
+    {
+      "id": "coding-0050",
+      "topic": "网络与协议",
+      "difficulty": 3,
+      "type": "multi",
+      "stem": "以下哪些协议通常使用 TCP 作为传输层协议？",
+      "options": ["HTTP/1.1", "SSH", "FTP", "DHCP"],
+      "answer": ["FTP", "HTTP/1.1", "SSH"],
+      "explanation": "HTTP/1.1、SSH 和 FTP 通常运行在 TCP 之上；DHCP 主要使用 UDP 进行广播式地址分配。"
     }
   ]
 }

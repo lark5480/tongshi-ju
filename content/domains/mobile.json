@@ -565,6 +565,81 @@
       "options": ["正确", "错误"],
       "answer": "正确",
       "explanation": "3.5 毫米插口最初在消费电子中广泛用于收音机与随身听，后来成为耳机与耳麦的通用接口。手机沿用了这一标准多年，直到近年部分厂商为防水与机身厚度改用 USB Type-C 或 Lightning，并常以转接线延续老耳机。"
+    },
+    {
+      "id": "mobile-0043",
+      "topic": "通讯技术",
+      "difficulty": 3,
+      "type": "single",
+      "stem": "与毫米波相比，5G 的 Sub-6GHz 频段主要优势是？",
+      "options": ["覆盖范围更广、穿透更好", "峰值速率更高", "天线尺寸更小", "完全不受天气影响"],
+      "answer": "覆盖范围更广、穿透更好",
+      "explanation": "Sub-6GHz 波长较长，传播损耗和穿透损耗相对较小，覆盖更广；毫米波带宽大、速率高，但覆盖距离短。"
+    },
+    {
+      "id": "mobile-0044",
+      "topic": "影像",
+      "difficulty": 3,
+      "type": "single",
+      "stem": "手机相机中的「像素合并」（pixel binning）技术主要作用是？",
+      "options": ["提升暗光下的感光能力", "增加光学变焦倍数", "降低屏幕功耗", "提高充电功率"],
+      "answer": "提升暗光下的感光能力",
+      "explanation": "像素合并把相邻像素合并成更大的等效像素，增加单个像素的进光量，从而改善暗光画质。"
+    },
+    {
+      "id": "mobile-0045",
+      "topic": "芯片与系统",
+      "difficulty": 3,
+      "type": "single",
+      "stem": "ARM 架构处理器通常采用的指令集类型是？",
+      "options": [
+        "RISC（精简指令集）",
+        "CISC（复杂指令集）",
+        "VLIW（超长指令字）",
+        "SIMD（单指令多数据）"
+      ],
+      "answer": "RISC（精简指令集）",
+      "explanation": "ARM 属于 RISC 架构，强调定长指令、加载/存储分离等设计；x86 通常归为 CISC。SIMD 是并行执行方式，不是指令集类型。"
+    },
+    {
+      "id": "mobile-0046",
+      "topic": "芯片与系统",
+      "difficulty": 3,
+      "type": "single",
+      "stem": "苹果 A 系列芯片基于哪种指令集架构？",
+      "options": ["ARM", "x86", "MIPS", "RISC-V"],
+      "answer": "ARM",
+      "explanation": "苹果 A 系列芯片基于 ARM 指令集架构，由苹果自主设计 CPU 核心；x86 主要用于 PC 与服务器。"
+    },
+    {
+      "id": "mobile-0047",
+      "topic": "影像",
+      "difficulty": 3,
+      "type": "single",
+      "stem": "手机摄像头参数中的 OIS 指的是？",
+      "options": ["光学防抖", "电子防抖", "数码变焦", "自动对焦"],
+      "answer": "光学防抖",
+      "explanation": "OIS 是 Optical Image Stabilization 的缩写，通过移动镜头或传感器补偿手抖；EIS 则是电子防抖。"
+    },
+    {
+      "id": "mobile-0048",
+      "topic": "通讯技术",
+      "difficulty": 3,
+      "type": "single",
+      "stem": "NFC（近场通信）的有效工作距离通常在什么量级？",
+      "options": ["几厘米以内", "几米", "几十米", "几百米"],
+      "answer": "几厘米以内",
+      "explanation": "NFC 工作在 13.56MHz，典型有效距离在几厘米以内，因此常用于碰一碰支付、门禁与配对。"
+    },
+    {
+      "id": "mobile-0049",
+      "topic": "机型常识",
+      "difficulty": 3,
+      "type": "single",
+      "stem": "iPhone 4 首次引入的标志性屏幕技术是？",
+      "options": ["Retina 显示屏", "OLED 屏幕", "高刷新率屏幕", "折叠屏"],
+      "answer": "Retina 显示屏",
+      "explanation": "iPhone 4 于 2010 年发布，首次采用 Retina 显示屏，像素密度显著提升；OLED 与高刷新率是后续机型才普及的。"
     }
   ]
 }

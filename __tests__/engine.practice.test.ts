@@ -110,3 +110,26 @@ test("不修改输入数组与条目", () => {
   assert.equal(JSON.stringify(entries), entriesBefore);
   assert.equal(JSON.stringify(pool), poolBefore);
 });
+
+test("练习题选项顺序确定，答案仍在选项中", () => {
+  const entries = [entry("gaming-0001", NOW - 1)];
+  const pool = { gaming: [question("gaming-0001")] };
+
+  const a = buildPracticeSet(entries, pool, NOW);
+  const b = buildPracticeSet(entries, pool, NOW);
+
+  assert.deepEqual(a[0].question.options, b[0].question.options);
+  assert.ok(a[0].question.options.includes("A"));
+});
+
+test("练习题的选项顺序会随到期批次变化", () => {
+  const orders = new Set<string>();
+
+  for (let i = 1; i <= 20; i++) {
+    const entries = [entry("gaming-0001", NOW - i)];
+    const picks = buildPracticeSet(entries, { gaming: [question("gaming-0001")] }, NOW);
+    orders.add(picks[0].question.options.join("|"));
+  }
+
+  assert.ok(orders.size > 1, "选项顺序不应永远固定");
+});

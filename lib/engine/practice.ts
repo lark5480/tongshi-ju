@@ -9,6 +9,8 @@
 import type { DomainId, Question, WrongEntry } from "@/types";
 
 import { dueEntries } from "./repetition";
+import { hashSeed } from "./prng";
+import { shuffleOptions } from "./options";
 
 /** 一轮最多复习多少道到期错题。 */
 export const PRACTICE_LIMIT = 10;
@@ -51,7 +53,13 @@ export function buildPracticeSet(
     if (!question) continue;
 
     seen.add(entry.questionId);
-    picks.push({ entry, question });
+    picks.push({
+      entry,
+      question: shuffleOptions(
+        question,
+        hashSeed("practice:" + entry.questionId + ":" + entry.nextDueAt)
+      ),
+    });
   }
 
   return picks;

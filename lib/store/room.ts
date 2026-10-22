@@ -634,6 +634,8 @@ export function startRoom(code: string, playerId: string): RoomSnapshot {
     count: TOTAL_ROUNDS,
     pool: bankPool(domains),
     seed,
+    // 抢答节奏优先：多选留给每日与 PK，duel 只用单选/判断
+    allowedTypes: ["single", "judge"],
   });
   if (picks.length === 0) {
     throw new RoomError("题库暂不可用，请稍后再试", 503, "empty_bank");

@@ -455,6 +455,36 @@
       "options": ["正确", "错误"],
       "answer": "正确",
       "explanation": "动态范围常以「档（EV）」表示，数值越大越能同时保留高光与暗部细节。"
+    },
+    {
+      "id": "tech-0041",
+      "topic": "半导体与芯片",
+      "difficulty": 3,
+      "type": "single",
+      "stem": "ASML 生产的 EUV 光刻机中，EUV 指的是？",
+      "options": ["极紫外光", "深紫外光", "电子束", "X 射线"],
+      "answer": "极紫外光",
+      "explanation": "EUV 是 Extreme Ultraviolet 的缩写，即极紫外光，波长约 13.5 纳米，用于先进制程的光刻曝光。"
+    },
+    {
+      "id": "tech-0042",
+      "topic": "航天",
+      "difficulty": 3,
+      "type": "single",
+      "stem": "詹姆斯·韦布空间望远镜（JWST）主要观测的波段是？",
+      "options": ["红外线", "可见光", "紫外线", "射电波"],
+      "answer": "红外线",
+      "explanation": "JWST 主要工作在红外波段，能穿透尘埃并观测高红移的早期星系；它不像哈勃那样以可见光和紫外为主。"
+    },
+    {
+      "id": "tech-0043",
+      "topic": "人工智能",
+      "difficulty": 3,
+      "type": "multi",
+      "stem": "以下哪些属于监督学习任务？",
+      "options": ["图像分类", "房价预测", "聚类", "垃圾邮件识别"],
+      "answer": ["图像分类", "垃圾邮件识别", "房价预测"],
+      "explanation": "图像分类、房价预测、垃圾邮件识别都有明确标签，属于监督学习；聚类没有标签，通常归为无监督学习。"
     }
   ]
 }
