@@ -15,13 +15,8 @@ npm run test:e2e      # Playwright 浏览器冒烟（自己起 dev，跑 e2e/ �
 `test:e2e` 会用 `playwright.config.ts` 里的 `webServer` 在 **3100 端口**起一个 `next dev`，
 跑完自动关掉；本机若已有服务在 3100 上会被复用（CI 里不复用）。
 
-> **默认通道实测**：Playwright 自带 chromium 本机 16/16 通过，耗时约 1–1.5 分钟
-> （duel 用例要等服务端回合定时器，波动最大）。
-> 没装那个浏览器的机器上可以 `PW_CHANNEL=msedge npm run test:e2e` 走已装的 Edge
-> （Edge 通道此前 15 条全绿；本次新增练习用例后未复跑 Edge）。
-> CI 用默认通道（`npx playwright install --with-deps chromium`）。
-> **别在 e2e 或 dev 跑着的时候同时 `npm run build`** —— 两者共用 `.next`，
-> 会把正在服务的 dev 打成全站 500。
+> 没装 Playwright 自带浏览器时，可用 `PW_CHANNEL=msedge npm run test:e2e` 走已装的 Edge。
+> 产物目录已隔离（见 [`DEPLOYMENT.md`](DEPLOYMENT.md) §2.2），e2e / dev / build 不会互相覆盖。
 
 ### glob 必须用**单星**
 
@@ -97,11 +92,7 @@ beforeEach(() => {
 - **不变量**（比值落在 [0,1]、集合无重复、排序稳定）；
 - **退化行为**（题库为空、候选池为空）。
 
-现有 22 个用例文件：`prng` · `engine.answer` · `engine.scoring` · `engine.daily` ·
-`engine.repetition` · `engine.practice` · `engine.duel-settlement` · `engine.rank` ·
-`engine.ghost` · `engine.blindbox` · `engine.pk` · `sse.frames` · `store.validate` · `store.authority` ·
-`store.room` · `store.lifecycle` · `rate-limit` · `content.validate` · `content.sensitive` ·
-`ai.validation` · `ai.dedupe` · `e2e.smoke`
+用例文件全部平铺在 `__tests__/`；数量与通过数以上述命令输出为准，不在本文维护（见 §8）。
 
 > ⚠️ **`lib/engine/date.ts` 没有用例文件** —— 它的日期口径（Asia/Shanghai 的 `dayKey()`、
 > `shiftDay` / `daysBetween`）目前只靠调用方间接验证。这是纯函数层的一个已知缺口。
@@ -110,9 +101,8 @@ beforeEach(() => {
 
 ## 5. 客户端：自动化守住了主流程，人只负责判断类问题
 
-> 单测打的是服务端与纯函数层。**2026-10-20 起下面这份清单已经写成 `e2e/`（Playwright）脚本**，
-> 并配进 `.github/workflows/ci.yml` 的 `e2e` job —— 本机默认通道 16 条全绿，
-> 2026-10-21 首次推送时该 job 在 GitHub 上实跑通过（1m25s）。
+> 单测打的是服务端与纯函数层。下面这份清单已经写成 `e2e/`（Playwright）脚本，
+> 并配进 `.github/workflows/ci.yml` 的 `e2e` job。
 > 所以这里从"必须手点"改成"脚本守住主流程，人看脚本看不出来的东西"。
 
 ### 5.1 曾经漏掉的那个 bug
@@ -166,8 +156,8 @@ submit(option);                            // ✅ 不再 setTimeout
 7. 打开**判断题** → 点选项 → 正确判定；（同上，随当日题集自然覆盖到）
 8. `/duel` 双人开局 → **连答满 5 回合**，每一回合选项都要点得动；（`duel.spec.ts` 连验两次越过回合，
    见 [`ARCHITECTURE.md`](ARCHITECTURE.md) §4.3；**拆掉那条守卫，这个用例会立刻变红 —— 已做差分验证**）
-9. duel 中途让连接断一次（切后台 / 断网 / 等到 100s 主动轮换）→ 重连后仍能作答且比分正确。
-   （人 —— 脚本目前不复用 100s 轮换窗口；§8 的回合推进断言用的是单调越过而非精确题号，
+9. duel 中途让连接断一次（切后台 / 断网 / 等到服务端主动轮换）→ 重连后仍能作答且比分正确。
+   （人 —— 脚本目前不复用轮换窗口；§8 的回合推进断言用的是单调越过而非精确题号，
    就是为了让这一类时序波动不变成假失败）
 10. `/wrong` 有到期错题 → 「开始复习」→ 独立练习 → 完成后该题不再待复习；
     （`practice.spec.ts`；只断言流程与队列清空，不断言具体对错）
@@ -211,14 +201,13 @@ npm run validate:content
 ## 7. 提交前的检查清单
 
 ```bash
-npm run typecheck      # tsc --noEmit
-npm test               # 全量单测
+npm test
 npm run validate:content
-npm run test:e2e       # 浏览器冒烟（自带 dev 服务，跑完关闭）
-npm run build          # 生产构建 —— 必须在 e2e / dev 停下之后再跑，两者共用 .next
-npm run lint
-npm run format:check
+npm run test:e2e
 ```
+
+这三条是测试侧必跑项；`typecheck` / `build` / `lint` / `format:check` 由 CI 的 `verify` 段执行，
+完整顺序见 `.github/workflows/ci.yml` 与 [`../AGENTS.md`](../AGENTS.md) §7。
 
 全绿再提交。改了 `lib/engine/*` 的**共享逻辑**时，
 确认客户端与服务端仍得到**逐题相同**的结果 —— 这是每日挑战的命门。

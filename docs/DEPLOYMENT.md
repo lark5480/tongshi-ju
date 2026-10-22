@@ -1,7 +1,7 @@
 # 《通识局》部署手册
 
 > **状态**：活文档。随部署形态变化更新。
-> 架构说明见 [`../AGENTS.md`](../AGENTS.md)，产品需求见 [`PRD.md`](PRD.md)。
+> 架构说明见 [`ARCHITECTURE.md`](ARCHITECTURE.md)，产品需求见 [`PRD.md`](PRD.md)。
 
 本项目采用**双轨部署**：
 
@@ -32,12 +32,8 @@
 
 1. **推代码**
 
-   ```bash
-   git init && git add -A && git commit -m "feat: 通识局 v1"
-   git branch -M main
-   git remote add origin <你的仓库>
-   git push -u origin main
-   ```
+   项目已托管在 GitHub；按仓库分支策略把 `dev` 合入 `master` 后再部署
+   （分支规则见 [`../AGENTS.md`](../AGENTS.md) §7）。
 
 2. **EdgeOne Pages 控制台**
 
@@ -54,26 +50,13 @@
 
 ### 1.3 SSE 在云轨上的行为
 
-云轨也能连 duel 的 SSE 流，但**房间状态不跨实例**，
-所以**云轨上的 duel 只在单实例、无并发时勉强可用**，不作为推荐路径。
-云轨的 SSE 主要服务于「同页多标签」这类轻量场景。
+云轨也能建立 SSE 连接，但**房间状态不跨实例**，因此**不支持把 duel 部署到云轨**；
+单实例、无并发时偶然可用不代表可依赖。云轨的 SSE 只用于「同页多标签」这类轻量场景。
 
 ### 1.4 CI
 
-`.github/workflows/ci.yml` 两个 job：
-
-```
-verify  ：lint → format:check → typecheck → validate:content → edgeone.json 检查 → test → build
-e2e     ：needs: verify → 装 chromium → npm run test:e2e（失败时上传 report 与 trace）
-```
-
-`e2e` 起的是临时 `next dev -p 3100`，不碰生产构建产物。
-
-其中 `edgeone.json` 检查确保 `maxDuration` 没被误删：
-
-```bash
-node -e "const c=require('./edgeone.json');if(c.nodeFunctionsConfig?.maxDuration!==120){process.exit(1)}"
-```
+CI 的触发分支、job 组成与本地复现方式见 [`../AGENTS.md`](../AGENTS.md) §7 和
+`.github/workflows/ci.yml`；本文只维护部署配置。
 
 ### 1.5 `vercel.json` 的实际含义
 
@@ -83,7 +66,7 @@ node -e "const c=require('./edgeone.json');if(c.nodeFunctionsConfig?.maxDuration
 | 项 | EdgeOne（当前云轨） | Vercel（`vercel.json`） |
 |---|---|---|
 | 函数硬超时 | 120s | **60s** |
-| `STREAM_MAX_AGE_MS` | 100s —— 硬杀前 20s 主动轮换 ✅ | 100s —— **永远到不了**，连接先被平台硬杀 ❌ |
+| 主动轮换窗口 | 见 [`ARCHITECTURE.md`](ARCHITECTURE.md) §4；硬杀前主动关闭 ✅ | 窗口大于 60s，**永远到不了**，连接先被平台硬杀 ❌ |
 | 后果 | 清理必执行 | `cancel()` 不保证触发 → 僵尸订阅占配额 → 重连 429 |
 
 > 如果真要上 Vercel，得把 `STREAM_MAX_AGE_MS` / `PING_INTERVAL_MS` / `STALE_SUBSCRIBER_MS`
@@ -98,8 +81,8 @@ node -e "const c=require('./edgeone.json');if(c.nodeFunctionsConfig?.maxDuration
 
 | 条件 | 说明 |
 |---|---|
-| Node.js ≥ 18 | `npm install` 能跑起来即可 |
-| cloudflared | **项目根目录已自带 `cloudflared.exe`**（51.7MB，`.gitignore` 已排除、不入库）；缺失时脚本会去 `PATH` 里找 |
+| Node.js >= 18.17 | 与 `next@14` 的 engines 要求一致 |
+| cloudflared | 根目录可放 `cloudflared.exe`（`.gitignore` 已排除、不入库）；缺失时脚本会去 `PATH` 里找 |
 | 端口 3000 空闲 | 不空闲时脚本**自动往后找一个空闲端口**（3001、3002…），并打印实际端口 |
 
 cloudflared 下载：<https://developers.cloudflare.com/cloudflared/>
@@ -174,9 +157,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\play-online.ps1 -Port 3100
   国内过去单程就 150~250ms，加上 TLS 握手一个来回 ~1.07s（`GET /duel` 实测 1.07s，
   同一请求本机直连 4ms）。抢答是「先答到者独占分值」，这条通道上谁赢很大程度取决于**谁离边缘近**；
   想认真比一场，用同一 WiFi 的 `npm run dev:lan`，或走下面的云轨部署。
-- **事件流走 POST，不走 `EventSource`**：quick tunnel 会整段缓冲 GET 的流式响应
-  （实测 100 秒 0 字节，连接关闭才吐出），对战页面因此收不到实时事件。
-  客户端已改为 `fetch(POST)` 读帧，原理与判据见 [`API.md`](API.md) §3 与 [`ARCHITECTURE.md`](ARCHITECTURE.md) §4。
+- **事件流走 POST**：quick tunnel 会整段缓冲 GET 的流式响应；
+  原理与判据见 [`API.md`](API.md) §3 与 [`ARCHITECTURE.md`](ARCHITECTURE.md) §4。
 
 ### 2.5 产物过期判据
 
@@ -207,13 +189,10 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\play-online.ps1 -Port 3100
 
 默认**关闭**，不影响任何主链路功能。
 
-```bash
-# .env.local
-AI_API_BASE=https://api.example.com/v1   # OpenAI 兼容协议；填 ollama 则走本地模型
-AI_API_KEY=your-api-key
-AI_MODEL=your-model-name
-AI_ADMIN_TOKEN=your-admin-token          # 不设置时仅 development 环境可调
-```
+复制 [`.env.example`](../.env.example) 为 `.env.local`，按需取消注释：
+
+- `AI_API_BASE` / `AI_API_KEY` / `AI_MODEL`：OpenAI 兼容 provider；`AI_API_BASE=ollama` 走本地模型；
+- `AI_ADMIN_TOKEN`：管理接口口令；不设置时仅 `development` 环境可调。
 
 调用：
 
@@ -227,7 +206,7 @@ curl -X POST https://<域名>/api/ai/generate \
 返回的 `accepted` 题目处于 **`status: "pending"`（待审池）**，
 需要人工抽检后才可写入 `content/domains/<id>.json` 进入正式题库。
 
-> AI 题**永不参与每日挑战** —— 每日挑战必须全网同题、可排行。
+> 每日挑战题源边界见 [`../AGENTS.md`](../AGENTS.md) §2.1。
 
 ---
 
@@ -235,23 +214,22 @@ curl -X POST https://<域名>/api/ai/generate \
 
 | 现象 | 原因 | 处理 |
 |---|---|---|
-| `play-online.bat` 提示找不到 cloudflared | 根目录没有、也没进 PATH | 根目录已自带 `cloudflared.exe`；若被误删，从 <https://developers.cloudflare.com/cloudflared/> 下载后放回根目录 |
+| `play-online.bat` 提示找不到 cloudflared | 根目录没有、也没进 PATH | 根目录可放 `cloudflared.exe`；缺失时从 <https://developers.cloudflare.com/cloudflared/> 下载后放回根目录 |
 | 端口被占用 | 3000 上已有服务（如 `next dev`） | 脚本**自动换到下一个空闲端口**并打印实际端口；也可 `-Port 3100` 指定 |
-| 部分页面 500 Internal Server Error（本地） | `next build` 覆盖了正在运行的 `next dev` 的 `.next`，dev 的 chunk 失效 | 关掉 dev 后重跑 `npm run build`；或直接用联机通道 —— 它的产物在 `.next-online`，与 dev 隔离 |
+| 部分页面 500 Internal Server Error（本地） | 手动把 dev 与 build 指到同一产物目录，chunk 被覆盖 | 恢复默认 `distDir`（见 §2.2），让 dev / build 使用各自目录 |
 | **打开页面要等 1 秒多** | 隧道出口在境外边缘（实测 `CF-Ray` 落在 LAX），每个请求一个来回 ≈ 0.8–1.0s | 这是**物理延迟**，换协议参数无效；客户端已把「创建房间 → 首屏」压到 1 个往返（快照预取与跳转并行） |
 | 答题偶发 409 | 慢链路下客户端回合号落后服务端一两个回合 | 已做三件事：提交用 ref 同步守卫防重复提交、倒计时归零后禁答、`stale_round`/`round_locked` 等**良性冲突静默重同步**（不再弹错误条） |
 | 隧道建立失败 | 网络不通 / 被杀软拦截 | 手动跑 `cloudflared tunnel --url http://localhost:3000` 看原始日志 |
-| SSE 每 ~100s 断一次 | **正常** —— 主动轮换 | 客户端会自动重连，不影响体验 |
+| SSE 定期断一次 | **正常** —— 主动轮换 | 客户端会自动重连，不影响体验 |
 | 加入房间报 404 | 房间码错 / 服务重启导致房间丢失 | 房间码 6 位大写；确认服务没重启过 |
 | 云轨上 duel 分数异常 | 多实例内存不共享 | **别在云轨上打 duel**，用本地轨 |
-| `npm test` 在 Linux 上 0 测试却退出 0 | 测试 glob 用了双星 `**` | 必须用单星 `__tests__/*.test.ts` |
 
 ---
 
 ## 五、备份与回滚
 
 - 题库是纯 JSON，版本控制即备份；
-- `docs/` 下是**活文档**（PRD / 架构 / 规则 / API / 内容 / 测试 / 设计 / 部署 / 团队章程）与
-  **带日期的调研快照**（`docs/research/`），二者都随项目演进更新 —— 决策写在对应主题文档的决策小节里，不单独建档；
+- 文档分层与决策归档规则见 [`../AGENTS.md`](../AGENTS.md) §6；
+  `docs/research/` 是带日期的一次性快照，只作时点证据，不回改；
 - 云轨回滚：平台侧切回上一个部署版本即可（无状态，无需数据迁移）；
 - 本地轨回滚：`git checkout` 到旧 tag 后重新 `npm run build && npm start`。
