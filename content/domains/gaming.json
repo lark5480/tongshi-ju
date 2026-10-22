@@ -430,6 +430,36 @@
       "options": ["一次失误的操作", "一次精彩的操作", "一段网络延迟", "一种关卡设计"],
       "answer": "一次失误的操作",
       "explanation": "「一个操作」通常指关键时刻的失误导致翻车，是中文游戏社区的高频吐槽句式。"
+    },
+    {
+      "id": "gaming-0041",
+      "topic": "经典作品",
+      "difficulty": 3,
+      "type": "single",
+      "stem": "《塞尔达传说：时之笛》最初于 1998 年发售，首发平台是？",
+      "options": ["Nintendo 64", "PlayStation", "Sega Saturn", "GameCube"],
+      "answer": "Nintendo 64",
+      "explanation": "《塞尔达传说：时之笛》1998 年在 Nintendo 64 发售，被视为 3D 动作冒险游戏的重要奠基作，引入了锁定视角等设计。"
+    },
+    {
+      "id": "gaming-0042",
+      "topic": "经典作品",
+      "difficulty": 3,
+      "type": "single",
+      "stem": "《半衰期 2》（Half-Life 2）使用的游戏引擎是？",
+      "options": ["Source 引擎", "Unreal Engine 2", "id Tech 3", "RenderWare"],
+      "answer": "Source 引擎",
+      "explanation": "Valve 为《半衰期 2》开发了 Source 引擎，其基于物理的互动与关卡演出在当时具有代表性。"
+    },
+    {
+      "id": "gaming-0043",
+      "topic": "品类与玩法",
+      "difficulty": 3,
+      "type": "multi",
+      "stem": "以下哪些游戏通常被归为「类 Rogue」（Roguelike / Roguelite）？",
+      "options": ["《以撒的结合》", "《哈迪斯》", "《杀戮尖塔》", "《星露谷物语》"],
+      "answer": ["《以撒的结合》", "《哈迪斯》", "《杀戮尖塔》"],
+      "explanation": "《以撒的结合》《哈迪斯》《杀戮尖塔》都以随机生成、局内成长与死亡重开为核心循环；《星露谷物语》是农场经营模拟。"
     }
   ]
 }
