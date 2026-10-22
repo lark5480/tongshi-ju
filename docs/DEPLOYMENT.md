@@ -99,8 +99,8 @@ node -e "const c=require('./edgeone.json');if(c.nodeFunctionsConfig?.maxDuration
 | 条件 | 说明 |
 |---|---|
 | Node.js ≥ 18 | `npm install` 能跑起来即可 |
-| cloudflared | 放在项目根目录，或已装进 `PATH`（脚本会自动找） |
-| 端口 3000 空闲 | 被占用时脚本会**复用**已有服务并提示 |
+| cloudflared | **项目根目录已自带 `cloudflared.exe`**（51.7MB，`.gitignore` 已排除、不入库）；缺失时脚本会去 `PATH` 里找 |
+| 端口 3000 空闲 | 不空闲时脚本**自动往后找一个空闲端口**（3001、3002…），并打印实际端口 |
 
 cloudflared 下载：<https://developers.cloudflare.com/cloudflared/>
 
@@ -112,13 +112,38 @@ cloudflared 下载：<https://developers.cloudflare.com/cloudflared/>
 
 脚本会依次完成：
 
-1. 检查构建产物 `.next\BUILD_ID`（缺失则自动 `npm run build`）；
-2. 启动 `npm start`（最小化窗口），轮询端口直到就绪（最多 40s）；
-3. 建立 cloudflared 隧道，正则抓取 `https://xxx.trycloudflare.com`；
-4. 把 **`{链接}/duel`** 复制到剪贴板并打印；
-5. 隧道退出后自动关掉本次启动的服务。
+1. 选端口：首选 3000，被占用就自动往后找一个空闲端口；
+2. 检查构建产物：**源码比 `.next-online\BUILD_ID` 新就自动重编**（判据见 §2.5）；
+3. 启动 `npm start`（最小化窗口），轮询端口直到就绪（最多 40s）；
+4. 建立 cloudflared 隧道，正则抓取 `https://xxx.trycloudflare.com`；
+5. 把 **`{链接}/duel`** 复制到剪贴板并打印；
+6. 隧道退出后自动关掉本次启动的服务。
 
-改过代码后想强制重建：
+> **为什么产物在 `.next-online` 而不是 `.next`？**
+>
+> `next dev` 与 `next build` 共用同一个产物目录会**互相覆盖** ——
+> build 把 dev 的 chunk 冲掉之后，dev 服务器上**部分页面**开始报
+> `500 Internal Server Error`（表现为「有的页面正常、有的页面 500」，
+> 因为 dev 已经编译过的路由还在内存缓存里，没编译过的就炸）。
+>
+> 反过来也成立：dev 启动时若目录里躺着上一次的生产构建，
+> 首个请求要先跟它和解 —— 本机实测**首请求 112~124 秒**
+> （表现就是「打开页面半天不出来」）。
+>
+> 所以本项目给四套场景各自分了一个目录（`next.config.mjs` 的 `distDir`，
+> `NEXT_DIST_DIR` 可显式覆盖）：
+>
+> | 场景 | 产物目录 |
+> |---|---|
+> | `npm run dev` | `.next-dev` |
+> | `npm run build` / `npm start` | `.next` |
+> | `npm run test:e2e` | `.next-e2e` |
+> | `play-online.ps1` | `.next-online` |
+>
+> **`npm run dev` 和联机通道可以同时跑**，互相不会冲掉对方的东西。
+
+产物过期时脚本会自己重编（判据见 §2.5）。只有在「产物时间上比代码新、但你就是不信任它」时，
+才需要手动强制重建：
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File .\play-online.ps1 -Rebuild
@@ -145,6 +170,36 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\play-online.ps1 -Port 3100
 - `trycloudflare.com` 是**临时随机域名**，每次重启都会变，别把旧链接发出去；
 - 房间态在内存里，**服务重启后房间全部消失**（这是设计如此，不是 bug）；
 - 首次连接隧道可能需要十几秒。
+- **每个请求约 1 秒**：quick tunnel 的边缘节点通常在海外（本机实测落在 `LAX`），
+  国内过去单程就 150~250ms，加上 TLS 握手一个来回 ~1.07s（`GET /duel` 实测 1.07s，
+  同一请求本机直连 4ms）。抢答是「先答到者独占分值」，这条通道上谁赢很大程度取决于**谁离边缘近**；
+  想认真比一场，用同一 WiFi 的 `npm run dev:lan`，或走下面的云轨部署。
+- **事件流走 POST，不走 `EventSource`**：quick tunnel 会整段缓冲 GET 的流式响应
+  （实测 100 秒 0 字节，连接关闭才吐出），对战页面因此收不到实时事件。
+  客户端已改为 `fetch(POST)` 读帧，原理与判据见 [`API.md`](API.md) §3 与 [`ARCHITECTURE.md`](ARCHITECTURE.md) §4。
+
+### 2.5 产物过期判据
+
+`play-online.ps1` 第 2 步不再只看 `.next-online\BUILD_ID` 存不存在，而是比较时间：
+
+```
+参与打包的源码里最新一次修改时间  >  BUILD_ID 的写入时间   →  重新构建
+```
+
+**范围**：`app/` · `components/` · `hooks/` · `lib/` · `types/` · `content/` 的文件，
+加上根目录的 `next.config.mjs` / `package.json` / `package-lock.json` / `tsconfig.json` /
+`tailwind.config.ts` / `postcss.config.mjs`。`content/` 必须在内 ——
+`lib/content/server-bank.ts` 是**静态 import 题库 JSON**，改了题库不重编就等于没改。
+**`docs/` · `__tests__/` · `e2e/` · `scripts/` 一律排除**：它们不进产物，
+不该让你白等一次几十秒的构建。
+
+**为什么这么改**：旧判据（有产物就跳过）让「改了代码但双击 .bat 忘了 `-Rebuild`」
+变成**静默跑旧代码** —— 2026-10-22 实测踩过：SSE 改 POST 的修复已经进了仓库，
+隧道上跑的还是昨天的 bundle（`POST /stream` 直接 405），
+表现是「明明修好了，还是收不到事件」。触发构建时脚本会把**是哪个文件比产物新**打出来。
+
+> `git checkout` / `git pull` 会重写工作区文件的修改时间，所以下一次双击通常会重编一次 ——
+> 这是对的：拉下来的就是新代码。
 
 ---
 
@@ -180,8 +235,11 @@ curl -X POST https://<域名>/api/ai/generate \
 
 | 现象 | 原因 | 处理 |
 |---|---|---|
-| `play-online.bat` 提示找不到 cloudflared | 没放根目录也没进 PATH | 下载后放根目录，或 `winget install --id Cloudflare.cloudflared` |
-| 端口被占用脚本直接复用 | 3000 上已有服务 | 关掉旧窗口，或用 `-Port` 换端口 |
+| `play-online.bat` 提示找不到 cloudflared | 根目录没有、也没进 PATH | 根目录已自带 `cloudflared.exe`；若被误删，从 <https://developers.cloudflare.com/cloudflared/> 下载后放回根目录 |
+| 端口被占用 | 3000 上已有服务（如 `next dev`） | 脚本**自动换到下一个空闲端口**并打印实际端口；也可 `-Port 3100` 指定 |
+| 部分页面 500 Internal Server Error（本地） | `next build` 覆盖了正在运行的 `next dev` 的 `.next`，dev 的 chunk 失效 | 关掉 dev 后重跑 `npm run build`；或直接用联机通道 —— 它的产物在 `.next-online`，与 dev 隔离 |
+| **打开页面要等 1 秒多** | 隧道出口在境外边缘（实测 `CF-Ray` 落在 LAX），每个请求一个来回 ≈ 0.8–1.0s | 这是**物理延迟**，换协议参数无效；客户端已把「创建房间 → 首屏」压到 1 个往返（快照预取与跳转并行） |
+| 答题偶发 409 | 慢链路下客户端回合号落后服务端一两个回合 | 已做三件事：提交用 ref 同步守卫防重复提交、倒计时归零后禁答、`stale_round`/`round_locked` 等**良性冲突静默重同步**（不再弹错误条） |
 | 隧道建立失败 | 网络不通 / 被杀软拦截 | 手动跑 `cloudflared tunnel --url http://localhost:3000` 看原始日志 |
 | SSE 每 ~100s 断一次 | **正常** —— 主动轮换 | 客户端会自动重连，不影响体验 |
 | 加入房间报 404 | 房间码错 / 服务重启导致房间丢失 | 房间码 6 位大写；确认服务没重启过 |
