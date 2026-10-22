@@ -6,7 +6,15 @@ import type { RoomEvent } from "@/types";
 export const dynamic = "force-dynamic";
 
 /**
- * GET /api/rooms/[code]/stream —— SSE 实时事件流。
+ * `/api/rooms/[code]/stream` —— SSE 实时事件流。GET / POST 两条路径行为完全一致，
+ * 只是**给不同的取道用**：
+ *
+ * - **POST**：浏览器客户端用这一条。Cloudflare Quick Tunnel（`play-online.bat` 的
+ *   `xxx.trycloudflare.com`）对 **GET 的流式响应整段缓冲**，帧会一直攒到连接关闭才吐出
+ *   （实测 100 秒 0 字节，轮换关闭时一次性到达）；同一隧道 POST 则是逐帧实时到达。
+ *   所以 `hooks/useRoomStream.ts` 用 `fetch(POST)` + `ReadableStream` 自己读帧，
+ *   而不是只能发 GET 的 `EventSource`。
+ * - **GET**：浏览器地址栏 / curl 直接查看当前流，也是平台侧口径保留的只读取道。
  *
  * ## 平台超时三件套（必须成套存在，缺一不可）
  *
@@ -17,10 +25,10 @@ export const dynamic = "force-dynamic";
  *    配套仓库根的 `edgeone.json`：`nodeFunctionsConfig.maxDuration = 120`；
  * 3. **僵尸回收**：连接配额达上限时先回收（同 playerId 的旧连接 / 超龄连接）再拒绝。
  *
- * 客户端行为见 `hooks/useRoomStream.ts`：`rotate` 后静默立即重连；
- * `onerror` 时接管重连（指数退避），**不依赖浏览器 EventSource 原生重连**。
+ * 客户端行为见 `hooks/useRoomStream.ts`：`rotate` 后静默立即重连，
+ * 其余断开一律走指数退避 —— 重连完全由客户端接管。
  */
-export async function GET(req: Request, { params }: { params: { code: string } }) {
+async function openStream(req: Request, { params }: { params: { code: string } }) {
   const code = params.code.toUpperCase();
 
   const snapshot = getSnapshot(code);
@@ -69,8 +77,6 @@ export async function GET(req: Request, { params }: { params: { code: string } }
   const stream = new ReadableStream<Uint8Array>({
     start(controller) {
       controllerRef = controller;
-      // 浏览器 EventSource 的原生重连间隔保底（正常由客户端接管为指数退避）
-      controller.enqueue(encoder.encode("retry: 5000\n\n"));
       // 连接即推送当前全量快照，保证重连 / 观战即时同步
       const event: RoomEvent = { type: "state", room: snapshot };
       controller.enqueue(encoder.encode(`event: state\ndata: ${JSON.stringify(event)}\n\n`));
@@ -108,3 +114,6 @@ export async function GET(req: Request, { params }: { params: { code: string } }
 
   return new Response(stream, { headers: SSE_HEADERS });
 }
+
+export const GET = openStream;
+export const POST = openStream;

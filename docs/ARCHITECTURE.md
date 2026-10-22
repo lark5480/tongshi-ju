@@ -120,6 +120,11 @@ lobby → countdown → question → feedback → (下一回合) → finished
 它与 `STREAM_MAX_AGE_MS = 100_000` 配套：服务端在平台硬杀前 20s 主动优雅关闭，
 把「平台硬杀」变成「清理必然执行」。
 
+**通道取道**：客户端用 `POST` 建流（`fetch` + `ReadableStream` 自己解析帧，见 `lib/sse.ts`），
+不用 `EventSource` —— 它只能发 GET，而 Cloudflare Quick Tunnel 会**整段缓冲 GET 的流式响应**，
+帧要攒到连接关闭才吐出，对战页面因此永远收不到实时事件。
+GET 路径仍然保留（同一个 handler），实测判据见 [`docs/API.md`](API.md) §3。
+
 ### 4.1 帧格式
 
 ```
@@ -129,7 +134,7 @@ data: <json>
 ```
 
 业务事件的 `event` 名与 `type` 一致；`rotate` 是**独立**事件名（不进入 `RoomEvent` 联合类型），
-用于通知客户端立即静默重连；心跳是注释行 `: ping`，客户端不触发 `message`。
+用于通知客户端立即静默重连；心跳是注释行 `: ping`，解析时跳过、不产生帧（`lib/sse.ts`）。
 
 实现：`lib/events.ts` · `lib/realtime.ts`
 

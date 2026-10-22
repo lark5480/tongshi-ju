@@ -97,9 +97,9 @@ beforeEach(() => {
 - **不变量**（比值落在 [0,1]、集合无重复、排序稳定）；
 - **退化行为**（题库为空、候选池为空）。
 
-现有 21 个用例文件：`prng` · `engine.answer` · `engine.scoring` · `engine.daily` ·
+现有 22 个用例文件：`prng` · `engine.answer` · `engine.scoring` · `engine.daily` ·
 `engine.repetition` · `engine.practice` · `engine.duel-settlement` · `engine.rank` ·
-`engine.ghost` · `engine.blindbox` · `engine.pk` · `store.validate` · `store.authority` ·
+`engine.ghost` · `engine.blindbox` · `engine.pk` · `sse.frames` · `store.validate` · `store.authority` ·
 `store.room` · `store.lifecycle` · `rate-limit` · `content.validate` · `content.sensitive` ·
 `ai.validation` · `ai.dedupe` · `e2e.smoke`
 

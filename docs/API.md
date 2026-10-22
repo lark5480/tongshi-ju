@@ -86,7 +86,7 @@
 | `POST` | `/api/rooms/[code]/start` | 房主开局 | `playerId` |
 | `POST` | `/api/rooms/[code]/answer` | 提交本题答案 | `playerId` |
 | `POST` | `/api/rooms/[code]/rematch` | 房主发起再来一局 | `playerId` |
-| `GET` | `/api/rooms/[code]/stream` | SSE 实时事件流 | 无（只读对外态）；玩家可带 `?playerId=` 上报在线状态 |
+| `GET` / `POST` | `/api/rooms/[code]/stream` | SSE 实时事件流 | 无（只读对外态）；玩家可带 `?playerId=` 上报在线状态 |
 | `POST` | `/api/ai/generate` | AI 出题（管理入口） | `x-ai-admin-token` |
 
 ---
@@ -295,7 +295,18 @@ timeout(408)  →  already_answered  →  round_locked  →  not_answering  → 
 
 ---
 
-## 3. SSE —— `GET /api/rooms/[code]/stream`
+## 3. SSE —— `GET` / `POST /api/rooms/[code]/stream`
+
+两个方法走同一份处理逻辑（`openStream`），行为、响应头、帧格式完全一致，**只是取道不同**：
+
+| 方法 | 谁在用 | 原因 |
+|---|---|---|
+| `POST` | 浏览器客户端 `hooks/useRoomStream.ts`（`fetch` + `ReadableStream` 自己读帧） | Cloudflare Quick Tunnel（`play-online.bat` 给的 `xxx.trycloudflare.com`）**整段缓冲 GET 的流式响应**：实测挂 100 秒 0 字节，直到服务端主动轮换关闭连接才一次性吐出全部帧。同一条隧道上 POST 逐帧实时到达。 |
+| `GET` | 浏览器地址栏 / curl 直接查看当前流 | 只能发 GET 的 `EventSource` 在 quick tunnel 上收不到实时帧，所以**客户端不再使用它**；隧道之外（本机、EdgeOne 云轨）GET 仍可用。 |
+
+> 这是 tunnel 侧的行为，不是本项目能靠响应头拧过来的：
+> 实测去掉 `; charset=utf-8`、把首帧灌到 16KB，GET 依旧被缓冲。
+> 参见 [cloudflared#1449](https://github.com/cloudflare/cloudflared/issues/1449)。
 
 **响应头**
 
@@ -333,10 +344,10 @@ data: <json>
 | `event` | 载荷 | 用途 |
 |---|---|---|
 | `rotate` | `{}` | 服务端主动轮换连接前通知客户端**立即静默重连**（独立事件名，不属于 `RoomEvent`） |
-| （注释行） | `: ping` | 心跳。25s 一次，客户端不会触发 `message` 事件 |
+| （注释行） | `: ping` | 心跳。25s 一次，是 SSE 注释行，`lib/sse.ts` 解析时直接跳过，不产生帧 |
 
-建流第一帧还会写 `retry: 5000`（浏览器原生 `EventSource` 的重连保底）；
-本项目客户端自己接管重连（指数退避），见 `hooks/useRoomStream.ts`。
+重连完全由客户端接管（指数退避 3s → 30s，带抖动），见 `hooks/useRoomStream.ts`；
+服务端不再写 `retry:` 帧 —— 那是给 `EventSource` 的原生重连用的，本项目已经不走它。
 连接建立后立刻推一帧 `state` 全量快照，保证重连 / 观战即时同步。
 
 ### 3.3 连接生命周期
