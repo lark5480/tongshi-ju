@@ -38,10 +38,11 @@ export default function MapPage() {
     const per = new Map<DomainId, { total: number; stars: number }>();
     for (const d of DOMAINS) per.set(d.id, { total: 0, stars: 0 });
     for (const [key, value] of Object.entries(mastery)) {
-      const [domain, topic] = key.split("|");
+      const [domain] = key.split("|");
       const p = per.get(domain as DomainId);
       if (!p) continue;
-      p.total += 1;
+      // 与 countTopicsTouched 同口径：熟练度为 0 的条目不算“已触及”
+      if (value !== 0) p.total += 1;
       p.stars += masteryStars(value);
     }
     return per;
@@ -94,6 +95,7 @@ export default function MapPage() {
     .join(" L ")} Z`;
 
   const totalStars = Array.from(stats.values()).reduce((s, v) => s + v.stars, 0);
+  const totalCap = DOMAINS.reduce((sum, d) => sum + d.topics.length * 5, 0);
   const litDomains = Array.from(stats.values()).filter((v) => v.stars > 0).length;
   const strongest = DOMAINS.reduce(
     (best, d) => ((ratioOf.get(d.id) ?? 0) > (ratioOf.get(best.id) ?? 0) ? d : best),
@@ -109,7 +111,7 @@ export default function MapPage() {
           知识星图
         </h1>
         <p className="text-sm text-muted">
-          每答对一个知识点点亮一颗星。数据只存在你自己的浏览器里。
+          每累计 2 次净答对点亮 1 星；答错扣 1 次，最低为 0。数据只存在你自己的浏览器里。
         </p>
       </header>
 
@@ -118,9 +120,12 @@ export default function MapPage() {
         <div className="panel p-3">
           <div className="flex items-center gap-1.5 text-xs text-muted">
             <Star size={13} className="text-gold" aria-hidden />
-            已点亮
+            已点亮星数
           </div>
-          <div className="tabular mt-1 text-xl font-bold text-accent">{totalStars}</div>
+          <div className="tabular mt-1 flex items-baseline gap-1">
+            <span className="text-xl font-bold text-accent">{totalStars}</span>
+            <span className="text-xs text-dim">/ {totalCap}</span>
+          </div>
         </div>
         <div className="panel p-3">
           <div className="flex items-center gap-1.5 text-xs text-muted">
@@ -271,7 +276,7 @@ export default function MapPage() {
                     </span>
                   )}
                   <span className="tabular ml-auto shrink-0 text-xs text-muted">
-                    {s.stars} 星 · {s.total} 知识点
+                    {s.stars} / {cap} 星 · 已触及 {s.total} 知识点
                   </span>
                 </div>
                 <div
@@ -291,7 +296,9 @@ export default function MapPage() {
       </div>
 
       {strongestRatio === 0 && (
-        <p className="text-center text-xs text-dim">还没有点亮任何领域 —— 先答一局每日挑战。</p>
+        <p className="text-center text-xs text-dim">
+          还没有点亮任何领域 —— 先答一局每日挑战、PK 或对战。
+        </p>
       )}
     </div>
   );

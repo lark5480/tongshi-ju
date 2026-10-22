@@ -300,13 +300,14 @@ SM-2 简化版，间隔序列：
 
 - 熟练度表 key = `"{domain}|{topic}"`；
 - 每次作答 `correct ? +1 : -1`，**下限 0**（钳制，不会变负）；
-- 星级 = `clamp(floor(value / 2), 0, 5)`；
+- 星级 = `clamp(floor(value / 2), 0, 5)` —— 首星需 **2 次净答对**；
+- 星图半径 = 该域星级总和 /（该域 topic 数 × 5）；
 - 「触及过的知识点数」= 熟练度表中**值非 0** 的条目数（用于段位）。
 
 实现：`lib/storage.ts` · `recordMastery()` / `masteryStars()` / `countTopicsTouched()`
 
-> 错题复习流（`/wrong/practice`）**不更新熟练度**（`recordAttempt({ mastery: false })`）——
-> 复习只推进错题间隔，不刷星图与段位。
+> 模式写回口径见 §11.3：每日挑战、同题 PK、duel 的本人实际作答回合都会更新熟练度；
+> 错题复习流（`/wrong/practice`）只推进错题间隔，不更新熟练度。
 
 ---
 
