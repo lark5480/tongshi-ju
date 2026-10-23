@@ -28,6 +28,10 @@
 | Edge Functions（V8） | 不支持 WebSocket，CPU 限 200ms | 本项目实时用 **SSE**，不依赖 WebSocket |
 | KV Storage | 仅 Edge Functions 可用，最终一致性 ≤60s | 本项目**不用** KV |
 
+Node 运行时由 EdgeOne 平台决定。上线前必须在控制台或构建日志核对实际 `process.version` 达到当前 Node 安全公告的修复线
+（2026-10 公告为 24.22.1 / 22.23.4）。仓库里的 `engines`、`nodeVersion` 不能替代平台补丁，
+也不要把平台未预装的补丁号填进去强行部署。
+
 ### 1.2 部署步骤
 
 1. **推代码**
@@ -81,7 +85,7 @@ CI 的触发分支、job 组成与本地复现方式见 [`../AGENTS.md`](../AGEN
 
 | 条件 | 说明 |
 |---|---|
-| Node.js >= 18.17 | 与 `next@14` 的 engines 要求一致 |
+| Node.js 24.22.1+（22 LTS 线最低 22.23.4） | 满足 2026-10 Node 安全公告修复线；`next@14` 自身只要求 >=18.17 |
 | cloudflared | 根目录可放 `cloudflared.exe`（`.gitignore` 已排除、不入库）；缺失时脚本会去 `PATH` 里找 |
 | 端口 3000 空闲 | 不空闲时脚本**自动往后找一个空闲端口**（3001、3002…），并打印实际端口 |
 
