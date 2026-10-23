@@ -13,6 +13,8 @@ concurrency:
 
 env:
   NEXT_TELEMETRY_DISABLED: 1
+  # 2026-10 Node 安全公告的 24 线修复线；低于此版本不要跑 CI 或构建发布产物。
+  NODE_VERSION: 24.22.1
 
 jobs:
   verify:
@@ -26,7 +28,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: ${{ env.NODE_VERSION }}
           cache: npm
 
       - name: Install dependencies
@@ -68,7 +70,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: ${{ env.NODE_VERSION }}
           cache: npm
 
       - name: Install dependencies
