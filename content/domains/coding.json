@@ -46,10 +46,10 @@
       "topic": "数据结构",
       "difficulty": 2,
       "type": "judge",
-      "stem": "链表在已知节点位置时可以 O(1) 完成插入，但要查找某个值仍需 O(n)。",
+      "stem": "链表在已知节点位置时插入的时间复杂度是 O(n)。",
       "options": ["正确", "错误"],
-      "answer": "正确",
-      "explanation": "链表不支持随机访问，查找必须从头遍历；插入的开销转移到「找到插入点」上。"
+      "answer": "错误",
+      "explanation": "在已知节点位置时，链表插入只需改动相邻指针，复杂度为 O(1)；但按值查找仍需从头遍历，复杂度是 O(n)。"
     },
     {
       "id": "coding-0006",
@@ -87,9 +87,9 @@
       "difficulty": 3,
       "type": "multi",
       "stem": "以下哪些属于线性结构？",
-      "options": ["数组", "链表", "栈", "二叉树"],
-      "answer": ["数组", "栈", "链表"],
-      "explanation": "线性结构的元素呈一对一的前后关系；二叉树属于层次（非线性）结构。"
+      "options": ["数组", "链表", "图", "二叉树"],
+      "answer": ["数组", "链表"],
+      "explanation": "数组用连续内存存放元素，链表用指针把节点串成一条链，二者都属线性结构；图由顶点和边构成，一个顶点可与多个顶点相连，属于非线性结构。"
     },
     {
       "id": "coding-0010",
@@ -579,7 +579,78 @@
       "stem": "以下哪些协议通常使用 TCP 作为传输层协议？",
       "options": ["HTTP/1.1", "SSH", "FTP", "DHCP"],
       "answer": ["FTP", "HTTP/1.1", "SSH"],
-      "explanation": "HTTP/1.1、SSH 和 FTP 通常运行在 TCP 之上；DHCP 主要使用 UDP 进行广播式地址分配。"
+      "explanation": "HTTP/1.1、SSH 和 FTP 通常运行在 TCP 之上；DHCP 主要使用 UDP 进行广播式地址分配。",
+      "source": {
+        "title": "RFC 9293 · Transmission Control Protocol"
+      }
+    },
+    {
+      "id": "coding-0051",
+      "topic": "网络与协议",
+      "difficulty": 2,
+      "type": "single",
+      "stem": "HTTP 中「幂等」指同一请求执行多次与执行一次的效果相同，下列哪个方法通常不被视为幂等？",
+      "options": ["GET", "PUT", "DELETE", "POST"],
+      "answer": "POST",
+      "explanation": "GET、PUT、DELETE 重复执行的结果与执行一次一致，因此是幂等的；POST 通常会新建资源或产生副作用，重复提交可能生成多条记录，所以一般不幂等。",
+      "source": {
+        "title": "RFC 9110 · HTTP Semantics"
+      }
+    },
+    {
+      "id": "coding-0052",
+      "topic": "数据结构",
+      "difficulty": 2,
+      "type": "single",
+      "stem": "二叉搜索树中，任意节点左子树上的值通常满足什么条件？",
+      "options": ["小于该节点的值", "大于该节点的值", "等于该节点的值", "与该节点的值无关"],
+      "answer": "小于该节点的值",
+      "explanation": "二叉搜索树要求左子树所有节点值小于根、右子树所有节点值大于根，因此中序遍历会得到有序序列，查找时每层可排除一半子树。"
+    },
+    {
+      "id": "coding-0053",
+      "topic": "算法与复杂度",
+      "difficulty": 3,
+      "type": "single",
+      "stem": "分治算法的典型步骤是？",
+      "options": ["分解、解决、合并", "排序、查找、删除", "编译、链接、运行", "加密、传输、解密"],
+      "answer": "分解、解决、合并",
+      "explanation": "分治把原问题拆成若干规模更小的子问题，分别求解后再合并结果；归并排序与快速排序都是分治思想的典型应用。"
+    },
+    {
+      "id": "coding-0054",
+      "topic": "操作系统",
+      "difficulty": 2,
+      "type": "single",
+      "stem": "操作系统中的「上下文切换」指的是？",
+      "options": [
+        "保存当前任务状态并恢复另一个任务的状态",
+        "把文件从磁盘读入内存",
+        "在屏幕上切换窗口",
+        "把程序编译成机器码"
+      ],
+      "answer": "保存当前任务状态并恢复另一个任务的状态",
+      "explanation": "上下文切换发生在进程或线程切换时，内核保存寄存器、程序计数器等现场，再载入下一个任务的现场；频繁切换会带来额外开销。"
+    },
+    {
+      "id": "coding-0055",
+      "topic": "语言特性",
+      "difficulty": 3,
+      "type": "multi",
+      "stem": "以下哪些属于 Python 的不可变（immutable）内置类型？",
+      "options": ["元组（tuple）", "字符串（str）", "列表（list）", "字典（dict）"],
+      "answer": ["元组（tuple）", "字符串（str）"],
+      "explanation": "元组与字符串创建后不能原地修改，属于不可变类型；列表与字典可以增删改元素，属于可变类型。"
+    },
+    {
+      "id": "coding-0056",
+      "topic": "网络与协议",
+      "difficulty": 2,
+      "type": "judge",
+      "stem": "DNS 查询默认通过 TCP 的 53 端口传输。",
+      "options": ["正确", "错误"],
+      "answer": "错误",
+      "explanation": "DNS 查询默认走 UDP 53 端口，报文小、开销低；只有响应超过 UDP 报文长度限制，或进行区域传送时，才会改用 TCP 53 端口。"
     }
   ]
 }
