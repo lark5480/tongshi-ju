@@ -62,9 +62,9 @@
       "difficulty": 3,
       "type": "multi",
       "stem": "以下哪些是常见的 PC 数字游戏商店？",
-      "options": ["Steam", "Epic Games Store", "GOG", "PlayStation Store"],
-      "answer": ["Epic Games Store", "GOG", "Steam"],
-      "explanation": "PlayStation Store 是索尼主机平台的商店，而 Steam、Epic Games Store、GOG 都是 PC 平台。"
+      "options": ["Steam", "Epic Games Store", "Nintendo eShop", "PlayStation Store"],
+      "answer": ["Epic Games Store", "Steam"],
+      "explanation": "Steam 与 Epic Games Store 是 PC 上主流的数字游戏商店；Nintendo eShop 面向任天堂主机，PlayStation Store 面向 PlayStation 平台，都不是 PC 商店。"
     },
     {
       "id": "gaming-0007",
@@ -321,7 +321,7 @@
       "topic": "经典作品",
       "difficulty": 2,
       "type": "single",
-      "stem": "《黑盒》类经典单机游戏《传送门 2》（Portal 2）的核心解谜机制依赖哪种空间概念？",
+      "stem": "解谜类经典单机游戏《传送门 2》（Portal 2）的核心解谜机制依赖哪种空间概念？",
       "options": ["可自由创建并连接两扇门的空间", "平面拼图", "时间倒流", "重力反转"],
       "answer": "可自由创建并连接两扇门的空间",
       "explanation": "Portal 2 的「传送门枪」可在墙面成对生成传送门，把空间连通性变成解谜核心。"
@@ -376,10 +376,10 @@
       "topic": "赛事",
       "difficulty": 1,
       "type": "judge",
-      "stem": "电子竞技在 2017 年被国际奥委会正式承认为一项正式运动。",
+      "stem": "电子竞技在 2017 年被国际奥委会正式承认为奥运比赛项目。",
       "options": ["正确", "错误"],
-      "answer": "正确",
-      "explanation": "2017 年国际奥委会在全会决议中承认电子竞技为正式运动，首届电竞奥运项目亦随之推进。"
+      "answer": "错误",
+      "explanation": "2017 年国际奥委会承认电子竞技是一项体育运动，但它并未成为奥运会正式比赛项目；奥运体系的电竞赛事另以「奥林匹克电竞运动会」等形式推进。"
     },
     {
       "id": "gaming-0036",
@@ -460,6 +460,71 @@
       "options": ["《以撒的结合》", "《哈迪斯》", "《杀戮尖塔》", "《星露谷物语》"],
       "answer": ["《以撒的结合》", "《哈迪斯》", "《杀戮尖塔》"],
       "explanation": "《以撒的结合》《哈迪斯》《杀戮尖塔》都以随机生成、局内成长与死亡重开为核心循环；《星露谷物语》是农场经营模拟。"
+    },
+    {
+      "id": "gaming-0044",
+      "topic": "主机与PC",
+      "difficulty": 1,
+      "type": "single",
+      "stem": "Xbox 系列游戏主机由哪家公司推出？",
+      "options": ["微软", "索尼", "任天堂", "世嘉"],
+      "answer": "微软",
+      "explanation": "Xbox 是微软 2001 年推出的家用主机品牌，与索尼 PlayStation、任天堂 Switch 构成主要的主机竞争格局；世嘉在 2001 年停产 Dreamcast 后退出主机硬件市场。"
+    },
+    {
+      "id": "gaming-0045",
+      "topic": "经典作品",
+      "difficulty": 2,
+      "type": "single",
+      "stem": "《最终幻想 VII》最初于 1997 年在哪款主机上发售？",
+      "options": ["PlayStation", "Nintendo 64", "Sega Saturn", "Dreamcast"],
+      "answer": "PlayStation",
+      "explanation": "《最终幻想 VII》1997 年 1 月在日本首发于索尼 PlayStation，以 3D 画面与 CG 过场推动了系列的全球化；同年 9 月在北美发售。"
+    },
+    {
+      "id": "gaming-0046",
+      "topic": "品类与玩法",
+      "difficulty": 3,
+      "type": "single",
+      "stem": "「Metroidvania」（银河恶魔城）这一类型名称来自哪两个游戏系列？",
+      "options": [
+        "《银河战士》与《恶魔城》",
+        "《洛克人》与《魂斗罗》",
+        "《塞尔达传说》与《密特罗德》",
+        "《恶魔城》与《忍者龙剑传》"
+      ],
+      "answer": "《银河战士》与《恶魔城》",
+      "explanation": "Metroidvania 由 Metroid（银河战士）与 Castlevania（恶魔城）拼合而成，指以能力解锁、回溯探索为特征的横版动作游戏；《恶魔城：月下夜想曲》常被视为该类型的奠基作之一。"
+    },
+    {
+      "id": "gaming-0047",
+      "topic": "赛事",
+      "difficulty": 2,
+      "type": "single",
+      "stem": "首届《Dota 2》国际邀请赛（TI）于哪一年举办？",
+      "options": ["2011 年", "2009 年", "2013 年", "2015 年"],
+      "answer": "2011 年",
+      "explanation": "TI 首届于 2011 年在德国科隆游戏展期间举办，冠军为乌克兰战队 Natus Vincere；此后赛事移师美国西雅图。"
+    },
+    {
+      "id": "gaming-0048",
+      "topic": "主机与PC",
+      "difficulty": 2,
+      "type": "multi",
+      "stem": "以下哪些属于任天堂推出的游戏主机？",
+      "options": ["Nintendo Switch", "Wii", "PlayStation 5", "Xbox Series X"],
+      "answer": ["Nintendo Switch", "Wii"],
+      "explanation": "Switch 与 Wii 都是任天堂的主机；PlayStation 5 由索尼推出，Xbox Series X 由微软推出。"
+    },
+    {
+      "id": "gaming-0049",
+      "topic": "经典作品",
+      "difficulty": 3,
+      "type": "judge",
+      "stem": "《塞尔达传说：旷野之息》只登陆了 Switch 一个平台。",
+      "options": ["正确", "错误"],
+      "answer": "错误",
+      "explanation": "《旷野之息》2017 年 3 月 3 日同步登陆 Wii U 与 Switch，是任天堂跨世代发行的代表作；此后系列新作才转为 Switch 独占。"
     }
   ]
 }
