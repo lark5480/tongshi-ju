@@ -525,6 +525,120 @@
       "options": ["正确", "错误"],
       "answer": "错误",
       "explanation": "《旷野之息》2017 年 3 月 3 日同步登陆 Wii U 与 Switch，是任天堂跨世代发行的代表作；此后系列新作才转为 Switch 独占。"
+    },
+    {
+      "id": "gaming-0050",
+      "topic": "手游",
+      "difficulty": 1,
+      "type": "single",
+      "stem": "《开心消消乐》的主要玩法是？",
+      "options": ["三消益智", "实时射击", "卡牌对战", "模拟经营"],
+      "answer": "三消益智",
+      "explanation": "玩家交换相邻图标，让三个或更多相同图标连成一线后消除，因此属于三消益智品类。",
+      "source": { "title": "乐元素 · 《开心消消乐》官方介绍" }
+    },
+    {
+      "id": "gaming-0051",
+      "topic": "手游",
+      "difficulty": 2,
+      "type": "single",
+      "stem": "《糖果传奇》（Candy Crush Saga）由哪家公司开发？",
+      "options": ["King", "Supercell", "Rovio", "Zynga"],
+      "answer": "King",
+      "explanation": "《糖果传奇》由英国游戏公司 King 开发，以交换糖果完成三消目标为核心；Supercell 以《部落冲突》闻名，Rovio 以《愤怒的小鸟》闻名。",
+      "source": { "title": "King · Candy Crush Saga 官方介绍" }
+    },
+    {
+      "id": "gaming-0052",
+      "topic": "手游",
+      "difficulty": 2,
+      "type": "single",
+      "stem": "《部落冲突》（Clash of Clans）的开发商是？",
+      "options": ["Supercell", "King", "miHoYo", "Ubisoft"],
+      "answer": "Supercell",
+      "explanation": "《部落冲突》由芬兰公司 Supercell 开发，玩家建设村庄、训练部队并与其他玩家对战；该公司还推出过《皇室战争》。",
+      "source": { "title": "Supercell · Clash of Clans 官方介绍" }
+    },
+    {
+      "id": "gaming-0053",
+      "topic": "手游",
+      "difficulty": 2,
+      "type": "single",
+      "stem": "《纪念碑谷》（Monument Valley）最突出的视觉特色是？",
+      "options": ["视错觉构成不可能几何", "写实三维赛车场景", "像素风横版跳跃", "真人实拍影像解谜"],
+      "answer": "视错觉构成不可能几何",
+      "explanation": "游戏通过等距视角与视错觉，让台阶和道路在旋转后形成看似不可能的连通结构，解谜与画面风格紧密相关。",
+      "source": { "title": "ustwo games · Monument Valley 官方介绍" }
+    },
+    {
+      "id": "gaming-0054",
+      "topic": "手游",
+      "difficulty": 1,
+      "type": "single",
+      "stem": "《Among Us》的核心玩法是？",
+      "options": [
+        "找出飞船成员中的内鬼",
+        "建造城市并管理居民",
+        "驾驶赛车完成竞速",
+        "组队推倒敌方水晶"
+      ],
+      "answer": "找出飞船成员中的内鬼",
+      "explanation": "玩家分为船员与内鬼，船员完成任务并通过讨论投票找出内鬼，内鬼则暗中破坏或袭击，属于社交推理玩法。",
+      "source": { "title": "Innersloth · Among Us 官方介绍" }
+    },
+    {
+      "id": "gaming-0055",
+      "topic": "手游",
+      "difficulty": 2,
+      "type": "single",
+      "stem": "《愤怒的小鸟》最初于 2009 年登陆哪个平台？",
+      "options": ["iOS", "PlayStation 2", "Nintendo 64", "街机"],
+      "answer": "iOS",
+      "explanation": "《愤怒的小鸟》由 Rovio 开发，2009 年 12 月首先在苹果 iOS 平台发行，随后才移植到其他移动与主机平台。",
+      "source": { "title": "Rovio · 《愤怒的小鸟》官方介绍" }
+    },
+    {
+      "id": "gaming-0056",
+      "topic": "梗与亚文化",
+      "difficulty": 1,
+      "type": "single",
+      "stem": "玩家说「氪金」，通常指？",
+      "options": [
+        "花钱购买游戏内道具或服务",
+        "反复刷副本积累经验",
+        "修改游戏文件作弊",
+        "免费领取官方奖励"
+      ],
+      "answer": "花钱购买游戏内道具或服务",
+      "explanation": "「氪金」借自日语「课金」，在中文游戏圈指用真实货币购买道具、抽卡或增值服务，与免费游玩相对。",
+      "source": { "title": "中国音数协游戏工委 · 中国游戏产业报告" }
+    },
+    {
+      "id": "gaming-0057",
+      "topic": "梗与亚文化",
+      "difficulty": 1,
+      "type": "single",
+      "stem": "多人对局结束时，玩家常打的「GG」原本是哪句英文的缩写？",
+      "options": [
+        "Good game，打得不错",
+        "Get going，赶紧开始",
+        "Great goal，好球",
+        "Game over，游戏结束"
+      ],
+      "answer": "Good game，打得不错",
+      "explanation": "GG 是 Good game 的缩写，起初用于对局结束时向对手致意；后来也常用来表示「这局结束了」，但它并不是 Game over 的缩写。",
+      "source": { "title": "《柯林斯英语词典》· GG" }
+    },
+    {
+      "id": "gaming-0058",
+      "topic": "梗与亚文化",
+      "difficulty": 3,
+      "type": "single",
+      "stem": "「吃鸡」这个说法来自哪款游戏的获胜台词？",
+      "options": ["《绝地求生》", "《英雄联盟》", "《守望先锋》", "《我的世界》"],
+      "answer": "《绝地求生》",
+      "explanation": "《绝地求生》获胜时会显示「大吉大利，晚上吃鸡」，玩家因此把拿第一名称为「吃鸡」，后来也泛指同类大逃杀游戏的胜利。",
+      "source": { "title": "《绝地求生》官方 · 获胜台词「大吉大利，晚上吃鸡」" }
     }
   ]
 }

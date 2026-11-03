@@ -577,6 +577,85 @@
       "options": ["正确", "错误"],
       "answer": "错误",
       "explanation": "《美国偶像》2002 年开播，改编自英国 2001 年的《Pop Idol》，以观众投票选拔歌手为核心；此后该模式又被多个国家引进。"
+    },
+    {
+      "id": "film-0054",
+      "topic": "综艺与音乐",
+      "difficulty": 1,
+      "type": "single",
+      "stem": "《乐队的夏天》聚焦哪类音乐人？",
+      "options": ["乐队组合", "美声歌唱家", "说唱歌手", "古典钢琴家"],
+      "answer": "乐队组合",
+      "explanation": "节目邀请多支乐队同台竞演，展示摇滚、独立流行等乐队形态；美声、说唱与古典钢琴各有其他节目对应。",
+      "source": { "title": "爱奇艺 · 《乐队的夏天》官方介绍" }
+    },
+    {
+      "id": "film-0055",
+      "topic": "综艺与音乐",
+      "difficulty": 1,
+      "type": "single",
+      "stem": "《这！就是街舞》以哪种表演形式为核心？",
+      "options": ["街舞", "京剧", "歌剧", "相声"],
+      "answer": "街舞",
+      "explanation": "节目以街舞舞者的组队与对抗为主线，涵盖多种街舞风格；京剧、歌剧与相声属于其他表演门类。",
+      "source": { "title": "优酷 · 《这！就是街舞》官方介绍" }
+    },
+    {
+      "id": "film-0056",
+      "topic": "综艺与音乐",
+      "difficulty": 2,
+      "type": "single",
+      "stem": "《我是歌手》的核心赛制特点是？",
+      "options": ["出道歌手竞演，观众投票", "素人海选后组队", "密室创作后公演", "导师看简历录取"],
+      "answer": "出道歌手竞演，观众投票",
+      "explanation": "节目邀请已经出道的歌手参赛，每期由现场观众投票决定排名，排名靠后者面临淘汰；这与以素人海选为主的选秀不同。",
+      "source": { "title": "湖南卫视 · 《我是歌手》官方资料" }
+    },
+    {
+      "id": "film-0057",
+      "topic": "综艺与音乐",
+      "difficulty": 2,
+      "type": "single",
+      "stem": "爱奇艺的说唱综艺《中国有嘻哈》在后续季度改名为？",
+      "options": ["《中国新说唱》", "《中国好声音》", "《乐队的夏天》", "《我是唱作人》"],
+      "answer": "《中国新说唱》",
+      "explanation": "《中国有嘻哈》2017 年播出后，后续季度以《中国新说唱》名称继续；《中国好声音》是歌唱选秀，《乐队的夏天》聚焦乐队。",
+      "source": { "title": "爱奇艺 · 《中国新说唱》官方介绍" }
+    },
+    {
+      "id": "film-0058",
+      "topic": "综艺与音乐",
+      "difficulty": 2,
+      "type": "single",
+      "stem": "《蒙面唱将猜猜猜》的主要看点是什么？",
+      "options": ["戴面具演唱供猜身份", "选手现场比拼厨艺", "演员现场演话剧", "素人挑战极限运动"],
+      "answer": "戴面具演唱供猜身份",
+      "explanation": "节目让歌手以面具和化名登台，评审与观众根据嗓音和线索猜测真实身份，悬念与演唱并重。",
+      "source": { "title": "江苏卫视 · 《蒙面唱将猜猜猜》官方介绍" }
+    },
+    {
+      "id": "film-0059",
+      "topic": "配乐",
+      "difficulty": 2,
+      "type": "single",
+      "stem": "《指环王：护戒使者》的原创配乐由哪位作曲家创作？",
+      "options": ["霍华德·肖", "约翰·威廉姆斯", "汉斯·季默", "埃尼奥·莫里康内"],
+      "answer": "霍华德·肖",
+      "explanation": "加拿大作曲家霍华德·肖为《指环王》三部曲创作配乐，并凭《护戒使者》获得奥斯卡最佳原创配乐奖。",
+      "source": {
+        "title": "New Line Cinema / Reprise Records · The Lord of the Rings: The Fellowship of the Ring (Original Motion Picture Soundtrack)"
+      }
+    },
+    {
+      "id": "film-0060",
+      "topic": "配乐",
+      "difficulty": 2,
+      "type": "single",
+      "stem": "电影《星际穿越》的原创配乐由哪位作曲家创作？",
+      "options": ["汉斯·季默", "霍华德·肖", "约翰·威廉姆斯", "亚历山大·德斯普拉"],
+      "answer": "汉斯·季默",
+      "explanation": "汉斯·季默为《星际穿越》创作配乐，以管风琴、弦乐与低频音色营造太空尺度感，与影片的时间与引力主题呼应。",
+      "source": { "title": "Paramount Pictures · Interstellar Original Motion Picture Soundtrack" }
     }
   ]
 }
