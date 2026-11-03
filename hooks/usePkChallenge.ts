@@ -154,6 +154,8 @@ export function usePkChallenge(): PkState {
           domains: resolved.domains,
           pool,
           seed: resolved.seed,
+          // PK 与每日共用同一套轮转，但 seed 含日期 + 房间码，仍保证同码同题
+          schedule: "cycle",
         });
         if (picks.length === 0) {
           setError("题库加载失败，请稍后重试");

@@ -221,7 +221,13 @@ export function useDailyChallenge(): DailyChallengeState {
 
         // 抽题并锁定
         const pool = await loadQuestionPool(useDomains);
-        const picks = buildDailySet({ dateKey: date, domains: useDomains, pool });
+        const picks = buildDailySet({
+          dateKey: date,
+          domains: useDomains,
+          pool,
+          // 同一领域集合下整池轮转，避免“2 天撞同一题”
+          schedule: "cycle",
+        });
         if (picks.length === 0) {
           setError("所选领域的题库还在准备中，请稍后再试或换个领域");
           setLoading(false);
