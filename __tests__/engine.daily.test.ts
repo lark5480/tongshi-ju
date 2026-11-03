@@ -11,6 +11,7 @@ import {
   pickDomainsBySeed,
   pickRandomDomains,
 } from "../lib/engine/daily";
+import { shiftDay } from "../lib/engine/date";
 
 /** 构造测试题池。 */
 function makePool(domains: DomainId[], perDomain: number): Partial<Record<DomainId, Question[]>> {
@@ -197,6 +198,162 @@ test("allowedTypes 过滤题型：duel 可排除多选", () => {
   assert.ok(singles.every((p) => p.question.type !== "multi"));
   assert.equal(multis.length, 5);
   assert.ok(multis.every((p) => p.question.type === "multi"));
+});
+
+test("cycle：3 域各 60 题时，30 天内单题不重复", () => {
+  const pool = makePool(DOMS, 60);
+  const seen = new Set<string>();
+
+  for (let i = 0; i < 30; i++) {
+    const dateKey = shiftDay("2026-11-01", i);
+    const picks = buildDailySet({
+      dateKey,
+      domains: DOMS,
+      pool,
+      schedule: "cycle",
+    });
+    for (const pick of picks) {
+      assert.ok(!seen.has(pick.question.id), `第 ${i + 1} 天重复了 ${pick.question.id}`);
+      seen.add(pick.question.id);
+    }
+  }
+
+  assert.equal(seen.size, 150, "30 天应覆盖 150 道不同题");
+});
+
+test("cycle：一个周期内整池只出现一次，周期末尾才回到起点", () => {
+  const pool = makePool(DOMS, 60);
+  const seen = new Set<string>();
+  let firstId = "";
+
+  for (let i = 0; i < 36; i++) {
+    const picks = buildDailySet({
+      dateKey: shiftDay("2026-11-01", i),
+      domains: DOMS,
+      pool,
+      schedule: "cycle",
+    });
+    if (i === 0) firstId = picks[0].question.id;
+    for (const pick of picks) {
+      assert.ok(!seen.has(pick.question.id), `周期内重复了 ${pick.question.id}`);
+      seen.add(pick.question.id);
+    }
+  }
+
+  const day36 = buildDailySet({
+    dateKey: shiftDay("2026-11-01", 36),
+    domains: DOMS,
+    pool,
+    schedule: "cycle",
+  });
+  assert.equal(day36[0].question.id, firstId, "第 37 天应回到周期起点");
+});
+
+test("cycle：首日仍按 1,1,2,2,3 的难度曲线出题", () => {
+  const pool = makePool(DOMS, 60);
+  const picks = buildDailySet({
+    dateKey: "2026-11-01",
+    domains: DOMS,
+    pool,
+    schedule: "cycle",
+  });
+  assert.deepEqual(
+    picks.map((p) => p.question.difficulty),
+    difficultyCurve(DEFAULT_DAILY_COUNT)
+  );
+});
+
+test("cycle：保留彩蛋题换域语义", () => {
+  const pool = makePool(DOMS, 60);
+  const picks = buildDailySet({
+    dateKey: "2026-11-01",
+    domains: DOMS,
+    pool,
+    schedule: "cycle",
+  });
+  const last = picks[picks.length - 1];
+  const prev = picks[picks.length - 2];
+  assert.equal(last.isEgg, true);
+  assert.notEqual(last.question.domain, prev.question.domain);
+});
+
+test("cycle：领域输入顺序不影响题集（集合语义）", () => {
+  const pool = makePool(DOMS, 60);
+  const a = buildDailySet({
+    dateKey: "2026-11-01",
+    domains: ["gaming", "tech", "life"],
+    pool,
+    schedule: "cycle",
+  });
+  const b = buildDailySet({
+    dateKey: "2026-11-01",
+    domains: ["life", "gaming", "tech"],
+    pool,
+    schedule: "cycle",
+  });
+  assert.deepEqual(
+    a.map((p) => p.question.id),
+    b.map((p) => p.question.id)
+  );
+});
+
+test("cycle：显式 seed 下同码同日同题，异码异题", () => {
+  const pool = makePool(DOMS, 60);
+  const a = buildDailySet({
+    dateKey: "2026-11-01",
+    domains: DOMS,
+    pool,
+    seed: 12345,
+    schedule: "cycle",
+  });
+  const b = buildDailySet({
+    dateKey: "2026-11-01",
+    domains: DOMS,
+    pool,
+    seed: 12345,
+    schedule: "cycle",
+  });
+  const c = buildDailySet({
+    dateKey: "2026-11-01",
+    domains: DOMS,
+    pool,
+    seed: 999,
+    schedule: "cycle",
+  });
+
+  assert.deepEqual(
+    a.map((p) => p.question.id),
+    b.map((p) => p.question.id)
+  );
+  assert.notDeepEqual(
+    a.map((p) => p.question.id),
+    c.map((p) => p.question.id)
+  );
+});
+
+test("cycle：allowedTypes 过滤仍然生效", () => {
+  const pool = makePool(["gaming"], 60);
+  for (const q of pool.gaming ?? []) q.type = "multi";
+  const picks = buildDailySet({
+    dateKey: "2026-11-01",
+    domains: ["gaming"],
+    pool,
+    schedule: "cycle",
+    allowedTypes: ["single", "judge"],
+  });
+  assert.deepEqual(picks, []);
+});
+
+test("cycle：题量不足时同样允许重复兜底", () => {
+  const pool = makePool(["gaming"], 2);
+  const picks = buildDailySet({
+    dateKey: "2026-11-01",
+    domains: ["gaming"],
+    pool,
+    count: 5,
+    schedule: "cycle",
+  });
+  assert.equal(picks.length, 5);
 });
 
 test("题量不足时允许重复兜底，绝不返回空", () => {

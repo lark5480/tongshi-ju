@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 
-import { currentRound, waitAnswerableBeyond } from "./helpers";
+import { currentRound, expectRound, waitAnswerableBeyond } from "./helpers";
 
 /**
  * 同步抢答闭环 —— TESTING §5.3 的第 8、9 条。
@@ -16,10 +16,10 @@ async function enterLobby(page: Page, name: string) {
   await page.locator("#duel-name").fill(name);
 }
 
-test("duel：两个玩家开局，连答两回合都能在下一回合点得动", async ({ browser }) => {
-  // 一题答错时回合要等到服务端 deadline 才结算（最长 30s）+ feedback 3s + 倒计时 3s，
-  // 两回合的余量必须给足，否则用例是在跟定时器抢时间。
-  test.setTimeout(200_000);
+test("duel：两个玩家走满 5 回合，末回合超时结算", async ({ browser }) => {
+  // 前 4 回合由房主作答：答错要等服务端 deadline（最长 30s）+ feedback 3s + 倒计时；
+  // 第 5 回合双方都不答，专门覆盖“无人答对 → 超时结算”路径。
+  test.setTimeout(320_000);
 
   const hostCtx = await browser.newContext();
   const guestCtx = await browser.newContext();
@@ -49,21 +49,25 @@ test("duel：两个玩家开局，连答两回合都能在下一回合点得动"
     expect(firstRound).toBeGreaterThanOrEqual(1);
     await expect(host.locator(".option-btn").first()).toBeEnabled({ timeout: 40_000 });
 
-    // 第 1 次提交 → 回合必须越过它，且选项重新可点。
+    // 前 4 回合：每次提交后必须越过当前回合，且选项重新可点。
     // 这一步就是当年那个缺陷的守卫：本地提交态只跟 `round_start` 事件时，
-    // 重连漏事件会让第 2 题起的选项永远点不动。
-    await host.locator(".option-btn").first().click();
-    const afterFirst = await waitAnswerableBeyond(host, firstRound);
+    // 重连漏事件会让第 2 题起的选项永远点不动。连续 4 次比两回合更能防止“一次性巧合”。
+    let round = firstRound;
+    for (let i = 0; i < 4; i++) {
+      await expect(host.locator(".option-btn").first()).toBeEnabled({ timeout: 40_000 });
+      await host.locator(".option-btn").first().click();
+      round = await waitAnswerableBeyond(host, round);
+    }
 
-    // 同一守卫再验一次：连续第二次提交后仍能推进（不是一次性巧合）。
-    // 不断言「提交后选项立刻变灰」—— 答对时服务端立即结算、题目卡被反馈面板换掉，
-    // 那种断言只在"答错"分支成立，用例就成了掷骰子。
-    await host.locator(".option-btn").first().click();
-    await waitAnswerableBeyond(host, afterFirst);
-
-    // 访客从未提交任何东西，也必须跟着 SSE 走到第 2 题之后 —— 广播漏了就是实时链路坏了
-    expect(await currentRound(guest)).toBeGreaterThan(firstRound);
+    // 第 5 回合：双方都不作答，等满足服务端 deadline 后进入结算。
+    // 这同时覆盖“末回合超时 + 结算广播”，不再只验前两回合。
+    await expectRound(host, 5);
+    // 访客从未提交任何东西，也必须跟着 SSE 走完前 4 回合并进入第 5 题
+    await expectRound(guest, 5);
     await expect(guest.locator(".option-btn").first()).toBeEnabled({ timeout: 40_000 });
+
+    await expect(host.getByText("对局结束")).toBeVisible({ timeout: 90_000 });
+    await expect(guest.getByText("对局结束")).toBeVisible({ timeout: 90_000 });
   } finally {
     await hostCtx.close();
     await guestCtx.close();

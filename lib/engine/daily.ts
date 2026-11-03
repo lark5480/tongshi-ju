@@ -6,14 +6,24 @@
  * - 同一天 + 同一组领域 → **全网同一份题**（天然可比、可分享）；
  * - 每日挑战**完全不需要服务端状态**（这是双轨部署架构的支点）。
  *
+ * 两种调度：
+ *
+ * - `legacy`（默认）：沿用原算法，每天独立随机抽题；重复来得快，但完全保持旧行为。
+ *   **duel 必须留在这里**：房间只有房间 seed + 空 `dateKey`，没有「按日期推进游标」的语义，
+ *   5 回合又由 `TOTAL_ROUNDS` 截断；换成 cycle 等于把日历游标带进对战。
+ * - `cycle`：每日挑战 / 同题 PK 使用。同一领域集合下，把整池题按难度曲线排成确定性序列，
+ *   按日期推进游标；一个周期内每题只出现一次，周期 = `floor(题池总数 / 题数)` 天。
+ *   3 个领域、题池约 150 题时约 30 天；2 域 20–24 天；单域 50 题时上限 10 天（内容量的硬上限）。
+ *   **先保不重复、后保难度曲线**：某一档用尽后按既有退化规则放宽到任意难度。
+ *
  * 算法（docs/GAME-RULES.md §2.1）：
- * 1. `daySeed = hashSeed("daily:" + dateKey + ":" + canonicalDomains(domains).join(","))`
- * 2. `mulberry32(daySeed)` 初始化 PRNG
- * 3. 领域轮转顺序 = 对 domains 做 Fisher-Yates 洗牌
- * 4. 第 i 题取自 `order[i % order.length]`
- * 5. 域内按 PRNG 取未出过的题；优先匹配难度曲线，不足则放宽
- * 6. 最后一题为「彩蛋题」：取自与上一题**不同**的领域（仍在所选领域内），制造换域节奏
- * 7. 选项顺序用「局种子 + question.id」派生独立 PRNG 打乱，不消耗抽题 PRNG
+ * 1. 领域先走 `canonicalDomains()`，保证「同一组领域」是集合语义
+ * 2. 抽题种子：`legacy` 用 `dailySeed(dateKey, domains)`；`cycle` 用领域集合的稳定种子，
+ *    这样每天推进的是同一份题序，而不是每天重新洗牌
+ * 3. 难度曲线按题数取 1,1,2,2,3（题数更多时重复该曲线）
+ * 4. `cycle` 把整池题按曲线分槽，按日期块推进；槽内优先取目标难度，取不到才放宽
+ * 5. 最后一题为「彩蛋题」：优先取与上一题**不同**的领域
+ * 6. 选项顺序用「局种子 + question.id」派生独立 PRNG 打乱，不消耗抽题随机流
  *
  * ## 为什么领域要先规范化排序
  *
@@ -27,6 +37,7 @@
 import type { Difficulty, DomainId, Question, QuestionType } from "@/types";
 import { hashSeed, mulberry32, pickOne, shuffled } from "./prng";
 import { shuffleOptions } from "./options";
+import { daysBetween } from "./date";
 
 export const DEFAULT_DAILY_COUNT = 5;
 
@@ -108,6 +119,15 @@ export interface BuildDailyParams {
    * duel 传 `["single", "judge"]`，避免多选拖慢抢答节奏。
    */
   allowedTypes?: readonly QuestionType[];
+  /**
+   * 抽题调度：
+   * - `legacy`（默认）：保留旧随机抽题。**duel 必须留在这里** —— 它用房间 seed +
+   *   空 `dateKey`，没有「按日期推进游标」的语义，且 5 回合由 `TOTAL_ROUNDS` 截断；
+   *   换成 cycle 会让对战抽题带上日历游标，破坏房间内可复现性。
+   * - `cycle`：每日挑战 / 同题 PK 使用。按日期块推进整池轮转，同一领域集合下
+   *   整池过一遍才重复；先保不重复，难度档用尽后再按既有规则放宽。
+   */
+  schedule?: "legacy" | "cycle";
 }
 
 /** 按题型过滤题池；不修改原池。 */
@@ -120,6 +140,113 @@ function filterPoolByTypes(
     out[domain] = (pool[domain] ?? []).filter((q) => allowedTypes.includes(q.type));
   }
   return out;
+}
+
+/**
+ * `cycle` 调度的稳定种子：只随领域集合变化，**不随日期变化**。
+ *
+ * 如果这里混入日期，每天都会重新洗牌，块与块之间又会重叠，
+ * “整池轮转”就退化成原来的随机抽题。
+ */
+function cycleSeed(domains: readonly DomainId[]): number {
+  return hashSeed("daily-cycle:" + domains.join(","));
+}
+
+/** 从 `first` 开始按原数组顺序轮转，用于把当日首选域排到最前。 */
+function rotateFrom<T>(arr: readonly T[], first: T): T[] {
+  const idx = arr.indexOf(first);
+  if (idx <= 0) return [...arr];
+  return [...arr.slice(idx), ...arr.slice(0, idx)];
+}
+
+/**
+ * 按难度曲线把整池题排成一个确定性序列。
+ *
+ * 取舍：
+ * - **先保不重复，再保难度曲线**。某一档难度用尽后放宽到任意难度（沿用旧退化规则），
+ *   因为难度 1 的题量才是 30 天窗口的实际上限；
+ * - 领域按 `blockIndex + slot` 轮转，让每个域在多个块之间均衡消耗；
+ * - 末位彩蛋题优先避开上一题的领域，只有单域或其它域无题时才回退。
+ */
+function buildCycleSequence(
+  domains: readonly DomainId[],
+  pool: Partial<Record<DomainId, Question[]>>,
+  count: number,
+  seed: number
+): Question[] {
+  const perDomain = new Map<DomainId, Question[]>();
+  for (const domain of domains) {
+    perDomain.set(
+      domain,
+      shuffled(pool[domain] ?? [], mulberry32(hashSeed("cycle:" + seed + ":" + domain)))
+    );
+  }
+
+  const total = domains.reduce((sum, domain) => sum + (perDomain.get(domain)?.length ?? 0), 0);
+  const cycleDays = Math.max(1, Math.floor(total / count));
+  const curve = difficultyCurve(count);
+  const used = new Set<string>();
+  const sequence: Question[] = [];
+  let prevDomain: DomainId | null = null;
+
+  for (let i = 0; i < cycleDays * count; i++) {
+    const blockIndex = Math.floor(i / count);
+    const slot = i % count;
+    const preferred = domains[(blockIndex + slot) % domains.length];
+    const avoid = slot === count - 1 ? prevDomain : null;
+    const q = takeCycleQuestion(domains, perDomain, used, curve[slot], preferred, avoid);
+    if (!q) break;
+    sequence.push(q);
+    used.add(q.id);
+    prevDomain = q.domain;
+  }
+
+  return sequence;
+}
+
+/** 序列取题：目标难度 + 避开彩蛋重复域优先，逐级放宽。 */
+function takeCycleQuestion(
+  domains: readonly DomainId[],
+  perDomain: Map<DomainId, Question[]>,
+  used: Set<string>,
+  target: Difficulty,
+  preferred: DomainId,
+  avoid: DomainId | null
+): Question | undefined {
+  const ordered = rotateFrom(domains, preferred);
+  const canAvoid = avoid !== null && domains.length > 1;
+
+  // 1. 目标难度，且不是彩蛋题要避开的领域
+  for (const domain of ordered) {
+    if (canAvoid && domain === avoid) continue;
+    const q = perDomain
+      .get(domain)
+      ?.find((item) => !used.has(item.id) && item.difficulty === target);
+    if (q) return q;
+  }
+
+  // 2. 任意难度，仍避开彩蛋重复域（与旧算法的换域优先一致）
+  for (const domain of ordered) {
+    if (canAvoid && domain === avoid) continue;
+    const q = perDomain.get(domain)?.find((item) => !used.has(item.id));
+    if (q) return q;
+  }
+
+  // 3. 其它域都没题了，允许回到目标难度（单域场景）
+  for (const domain of ordered) {
+    const q = perDomain
+      .get(domain)
+      ?.find((item) => !used.has(item.id) && item.difficulty === target);
+    if (q) return q;
+  }
+
+  // 4. 最后兜底：任意未出过的题
+  for (const domain of ordered) {
+    const q = perDomain.get(domain)?.find((item) => !used.has(item.id));
+    if (q) return q;
+  }
+
+  return undefined;
 }
 
 /**
@@ -144,6 +271,33 @@ export function buildDailySet(params: BuildDailyParams): DailyPick[] {
   if (usable.length === 0) return [];
 
   const seed = params.seed ?? dailySeed(dateKey, domains);
+
+  if (params.schedule === "cycle") {
+    // daily 用“领域集合”稳定种子，跨天推进同一份题序；
+    // PK 传入显式 seed（含日期 + 房间码），因此同码同日同题、异码异题。
+    const sequence = buildCycleSequence(usable, pool, count, params.seed ?? cycleSeed(domains));
+    if (sequence.length === 0) return [];
+
+    // 按日期块推进，保证每天的 5 题仍对齐难度曲线；周期结束后才回到第 0 块。
+    // 以产品上线档期为锚点，避免新算法上线首日落在周期末尾、难度曲线被提前放宽。
+    const cycleDays = Math.max(1, Math.floor(sequence.length / count));
+    const dayIndex = daysBetween(dateKey, "2026-01-01");
+    const dayOffset = ((dayIndex % cycleDays) + cycleDays) % cycleDays;
+    const start = dayOffset * count;
+
+    const picks: DailyPick[] = [];
+    for (let i = 0; i < count; i++) {
+      const q = sequence[(start + i) % sequence.length];
+      if (!q) continue;
+      picks.push({ question: q, isEgg: i === count - 1, index: picks.length });
+    }
+
+    return picks.map((pick) => ({
+      ...pick,
+      question: shuffleOptions(pick.question, seed),
+    }));
+  }
+
   const rng = mulberry32(seed);
   const order = shuffled(usable, rng);
   const curve = difficultyCurve(count);

@@ -32,6 +32,10 @@ daySeed = hashSeed("daily:" + dateKey + ":" + canonicalDomains(domains).join(","
 
 实现：`lib/engine/daily.ts` · `canonicalDomains()` / `dailySeed()`
 
+> `cycle` 调度（每日挑战 / PK）**不用 `daySeed` 选题**：选题种子是只随领域集合变化的
+> `cycleSeed`（PK 用显式 seed），否则每天重新洗牌会让轮转块重叠。`daySeed` 仍用于
+> **选项打乱**，保证每天的选项顺序不同。调度说明见 §2.1。
+
 ### 1.3 盲盒种子
 
 ```
@@ -46,17 +50,48 @@ blindboxSeed = hashSeed("blindbox:" + dateKey)
 
 ### 2.1 抽题算法
 
+`buildDailySet` 有两种调度：**每日挑战与同题 PK 用 `cycle`，duel 用 `legacy`**。
+duel 传的是房间 seed + 空 `dateKey`，没有日期游标语义，5 回合又由 `TOTAL_ROUNDS` 截断，
+因此保持旧算法。
+
+**`legacy`（仅 duel）**：
+
 1. `daySeed` 初始化 PRNG（`mulberry32`）；
 2. 领域轮转顺序 = 对**可用**领域做 Fisher-Yates 洗牌；
 3. 第 `i` 题取自 `order[i % order.length]`；
 4. 域内按 PRNG 取**未出过的**题，优先匹配难度曲线，不足则放宽；
-5. **末位为「彩蛋题」**：取自与上一题**不同**的领域（仍在所选领域内）；
-6. 选项顺序用「局种子 + `question.id`」派生**独立** PRNG 做 Fisher-Yates 洗牌。
-   独立 PRNG 不消耗抽题 PRNG，因此不改变选中的题目；同一题 + 同一 seed
-   在客户端、服务端与 PK 双方得到**同一顺序**。
+5. **末位为「彩蛋题」**：取自与上一题**不同**的领域（仍在所选领域内）。
+
+**`cycle`（每日挑战 / 同题 PK）**：
+
+1. 领域先走 `canonicalDomains()`，保证「同一组领域」是集合语义；
+2. 选题种子只用「领域集合」的稳定值（PK 用显式 seed），**不含日期** ——
+   否则每天重新洗牌，块与块之间会重叠，整池轮转退化成随机抽题；
+3. 整池按难度曲线排成确定性序列，按日期块推进游标：
+   `cycleDays = floor(题池总数 / 题数)`，`dayOffset = dayIndex % cycleDays`；
+4. 槽内优先取目标难度；某一档用尽后按下面的退化规则放宽到任意难度 ——
+   **先保不重复，再保难度曲线**。代价是周期后段不再是严格的 `1,1,2,2,3`，
+   换来整池过一遍才重复；
+5. 末位彩蛋题仍优先换域。
+
+两种调度的**选项顺序**都用「局种子 + `question.id`」派生**独立** PRNG 做 Fisher-Yates 洗牌。
+独立 PRNG 不消耗抽题 PRNG，因此不改变选中的题目；同一题 + 同一 seed
+在客户端、服务端与 PK 双方得到**同一顺序**。
 
 > 题库里的正确项位置不参与出题逻辑。选项打乱由引擎负责，见
 > `lib/engine/options.ts` 与 [`CONTENT.md`](CONTENT.md) §4.3。
+
+**可得窗口（内容量硬上限）**：
+
+| 领域数 | 题池约 | 一题不重复的天数 |
+|---|---|---|
+| 3 | 150 | 约 30 |
+| 2 | 100 | 20–24 |
+| 1 | 50–64 | 9–12 |
+
+> 单域要撑满 30 天约需 150 题，记为下一轮扩题库的目标。
+> 盲盒 / 随缘换域**跨集合不保证**不重复 —— 不引入本地「近 N 天已出题」记录，
+> 因为那会破「纯函数 + 无状态」红线。详见 [`ARCHITECTURE.md`](ARCHITECTURE.md) §2.1。
 
 `buildDailySet` 还支持 `allowedTypes` 过滤题型：**duel 固定传 `["single", "judge"]`**，
 多选只进入每日挑战与同题 PK。
