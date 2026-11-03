@@ -651,6 +651,116 @@
       "options": ["正确", "错误"],
       "answer": "错误",
       "explanation": "DNS 查询默认走 UDP 53 端口，报文小、开销低；只有响应超过 UDP 报文长度限制，或进行区域传送时，才会改用 TCP 53 端口。"
+    },
+    {
+      "id": "coding-0057",
+      "topic": "数据结构",
+      "difficulty": 1,
+      "type": "single",
+      "stem": "链表中的每个节点通常至少包含哪两部分？",
+      "options": ["数据与后继指针", "键与哈希值", "行号与列号", "页号与偏移量"],
+      "answer": "数据与后继指针",
+      "explanation": "链表节点通常由存放数据的字段和指向下一个节点的指针组成；正是这层指针关系让链表不必占用连续内存。",
+      "source": { "title": "《算法导论》（第 3 版）" }
+    },
+    {
+      "id": "coding-0058",
+      "topic": "数据结构",
+      "difficulty": 1,
+      "type": "single",
+      "stem": "二叉树中每个节点最多有几个直接子节点？",
+      "options": ["2 个", "1 个", "3 个", "不限个数"],
+      "answer": "2 个",
+      "explanation": "二叉树要求每个节点最多有两个子节点，分别称为左孩子和右孩子；这是它与多叉树、图的核心区别。",
+      "source": { "title": "《算法导论》（第 3 版）" }
+    },
+    {
+      "id": "coding-0059",
+      "topic": "算法与复杂度",
+      "difficulty": 1,
+      "type": "single",
+      "stem": "在 n 个元素中做顺序查找，最坏情况下需要比较多少次？",
+      "options": ["n 次", "1 次", "log₂n 次", "n² 次"],
+      "answer": "n 次",
+      "explanation": "顺序查找从第一个元素开始逐个比较；目标在末尾或不存在时都要检查全部 n 个元素，因此最坏为 n 次。",
+      "source": { "title": "《算法导论》（第 3 版）" }
+    },
+    {
+      "id": "coding-0060",
+      "topic": "算法与复杂度",
+      "difficulty": 1,
+      "type": "single",
+      "stem": "在有序数组中使用二分查找时，每次比较后通常会排除多少候选元素？",
+      "options": ["大约一半", "固定 1 个", "全部候选", "四分之一"],
+      "answer": "大约一半",
+      "explanation": "二分查找每次用中间元素与目标比较，根据大小关系保留左半或右半，因此候选范围约减半，时间复杂度为 O(log n)。",
+      "source": { "title": "《算法导论》（第 3 版）" }
+    },
+    {
+      "id": "coding-0061",
+      "topic": "语言特性",
+      "difficulty": 1,
+      "type": "single",
+      "stem": "在 Python 中，定义普通函数使用的关键字是？",
+      "options": ["def", "func", "function", "lambda"],
+      "answer": "def",
+      "explanation": "Python 用 def 声明普通函数；lambda 用来创建匿名函数，func 与 function 不是 Python 的关键字。",
+      "source": { "title": "Python 官方文档 · 函数定义" }
+    },
+    {
+      "id": "coding-0062",
+      "topic": "语言特性",
+      "difficulty": 1,
+      "type": "single",
+      "stem": "标准 C 程序开始执行时，入口函数通常是？",
+      "options": ["main", "start", "run", "init"],
+      "answer": "main",
+      "explanation": "C 语言标准规定托管环境下程序从 main 函数开始执行；start、run、init 都不是标准入口名。",
+      "source": { "title": "ISO/IEC 9899 · C 语言标准" }
+    },
+    {
+      "id": "coding-0063",
+      "topic": "操作系统",
+      "difficulty": 1,
+      "type": "single",
+      "stem": "在 Linux 终端中，列出当前目录内容的命令是？",
+      "options": ["ls", "cd", "rm", "pwd"],
+      "answer": "ls",
+      "explanation": "ls 列出目录内容；cd 切换当前目录，rm 删除文件，pwd 显示当前所在路径。",
+      "source": { "title": "Linux man-pages · ls(1)" }
+    },
+    {
+      "id": "coding-0064",
+      "topic": "操作系统",
+      "difficulty": 1,
+      "type": "single",
+      "stem": "在 Windows 中删除文件时，想跳过回收站直接删除，应使用哪个组合键？",
+      "options": ["Shift + Delete", "Ctrl + Delete", "Alt + Delete", "Win + Delete"],
+      "answer": "Shift + Delete",
+      "explanation": "Shift + Delete 会跳过回收站直接删除文件，误删后无法从回收站恢复；普通 Delete 则先把文件移入回收站。",
+      "source": { "title": "Microsoft 支持 · Windows 键盘快捷方式" }
+    },
+    {
+      "id": "coding-0065",
+      "topic": "网络与协议",
+      "difficulty": 1,
+      "type": "single",
+      "stem": "一个标准 IPv4 地址由几组十进制数字组成？",
+      "options": ["4 组", "2 组", "6 组", "8 组"],
+      "answer": "4 组",
+      "explanation": "IPv4 地址写成四组 0–255 的十进制数，中间用点分隔，例如 192.168.1.1；IPv6 地址则使用更长的十六进制写法。",
+      "source": { "title": "RFC 791 · Internet Protocol" }
+    },
+    {
+      "id": "coding-0066",
+      "topic": "网络与协议",
+      "difficulty": 1,
+      "type": "single",
+      "stem": "HTTP 状态码 200 通常表示？",
+      "options": ["请求成功", "请求被重定向", "资源未找到", "服务器内部错误"],
+      "answer": "请求成功",
+      "explanation": "2xx 表示请求已被成功处理，200 是最常见的成功状态；3xx 代表重定向，404 表示资源未找到，5xx 表示服务器端错误。",
+      "source": { "title": "RFC 9110 · HTTP Semantics" }
     }
   ]
 }
