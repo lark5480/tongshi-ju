@@ -26,6 +26,7 @@ import {
 } from "../lib/engine/ghost";
 import {
   bumpLifetimeStats,
+  getDailySession,
   getLifetimeStats,
   getMastery,
   getPracticeFunnel,
@@ -34,6 +35,7 @@ import {
   markPracticeResultSeen,
   recordAttempt,
   removeKey,
+  saveDailyNpc,
   saveDailySession,
   updatePracticeFunnel,
 } from "../lib/storage";
@@ -193,7 +195,13 @@ function session(date: string, over: Partial<DailySession> = {}): DailySession {
     done: false,
     mode: "native",
     practiceReason: "你在科技错了 3 次，今天补一题",
-    practiceFunnel: { shown: true, answered: false, correct: false, resultSeen: false },
+    practiceFunnel: {
+      shown: true,
+      answered: false,
+      correct: false,
+      skipped: false,
+      resultSeen: false,
+    },
     ...over,
   };
 }
@@ -207,6 +215,7 @@ test("加练埋点：展示 → 作答 → 正确 三态写入当日会话", () 
     shown: true,
     answered: false,
     correct: false,
+    skipped: false,
     resultSeen: false,
   });
 
@@ -215,6 +224,7 @@ test("加练埋点：展示 → 作答 → 正确 三态写入当日会话", () 
     shown: true,
     answered: true,
     correct: true,
+    skipped: false,
     resultSeen: false,
   });
 
@@ -226,6 +236,7 @@ test("加练埋点：展示 → 作答 → 正确 三态写入当日会话", () 
     shown: true,
     answered: true,
     correct: true,
+    skipped: false,
     resultSeen: false,
   });
 
@@ -238,7 +249,13 @@ test("加练埋点：结算页曝光单独记 resultSeen", () => {
   removeKey(`daily.${date}`);
   saveDailySession(
     session(date, {
-      practiceFunnel: { shown: true, answered: true, correct: true, resultSeen: false },
+      practiceFunnel: {
+        shown: true,
+        answered: true,
+        correct: true,
+        skipped: false,
+        resultSeen: false,
+      },
     })
   );
   markPracticeResultSeen(date);
@@ -246,6 +263,7 @@ test("加练埋点：结算页曝光单独记 resultSeen", () => {
     shown: true,
     answered: true,
     correct: true,
+    skipped: false,
     resultSeen: true,
   });
   removeKey(`daily.${date}`);
@@ -258,12 +276,24 @@ test("加练埋点：按日期区间汇总展示数 / 作答率 / 正确率", ()
   // 11-10：展示 + 作答 + 正确；11-11：只展示；11-12：没有会话。
   saveDailySession(
     session("2026-11-10", {
-      practiceFunnel: { shown: true, answered: true, correct: true, resultSeen: true },
+      practiceFunnel: {
+        shown: true,
+        answered: true,
+        correct: true,
+        skipped: false,
+        resultSeen: true,
+      },
     })
   );
   saveDailySession(
     session("2026-11-11", {
-      practiceFunnel: { shown: true, answered: false, correct: false, resultSeen: false },
+      practiceFunnel: {
+        shown: true,
+        answered: false,
+        correct: false,
+        skipped: false,
+        resultSeen: false,
+      },
     })
   );
 
@@ -277,4 +307,90 @@ test("加练埋点：按日期区间汇总展示数 / 作答率 / 正确率", ()
   assert.equal(summary.correctRate, 1);
 
   for (const d of dates) removeKey(`daily.${d}`);
+});
+
+test("加练埋点：跳过只记 skipped，不记 answered（与作答互斥）", () => {
+  const date = "2026-11-16";
+  removeKey(`daily.${date}`);
+  saveDailySession(
+    session(date, {
+      practiceSkipped: true,
+      practiceFunnel: {
+        shown: true,
+        answered: false,
+        correct: false,
+        skipped: true,
+        resultSeen: false,
+      },
+    })
+  );
+  const funnel = getPracticeFunnel(date);
+  assert.ok(funnel);
+  assert.equal(funnel.shown, true);
+  assert.equal(funnel.skipped, true);
+  assert.equal(funnel.answered, false, "跳过不能记成作答");
+
+  // 旧会话只有 practiceSkipped、没有 practiceFunnel → 回填 skipped，仍不算作答。
+  const legacyDate = "2026-11-17";
+  removeKey(`daily.${legacyDate}`);
+  saveDailySession(session(legacyDate, { practiceFunnel: undefined, practiceSkipped: true }));
+  const legacy = getPracticeFunnel(legacyDate);
+  assert.ok(legacy);
+  assert.equal(legacy.skipped, true);
+  assert.equal(legacy.answered, false);
+  assert.equal(legacy.correct, false);
+
+  removeKey(`daily.${date}`);
+  removeKey(`daily.${legacyDate}`);
+});
+
+test("加练埋点：汇总单列跳过率，跳过不进入作答率分母", () => {
+  const date = "2026-11-18";
+  removeKey(`daily.${date}`);
+  saveDailySession(
+    session(date, {
+      practiceFunnel: {
+        shown: true,
+        answered: false,
+        correct: false,
+        skipped: true,
+        resultSeen: true,
+      },
+    })
+  );
+  const summary = getPracticeFunnelSummary(date, date);
+  assert.equal(summary.days, 1);
+  assert.equal(summary.shown, 1);
+  assert.equal(summary.answered, 0);
+  assert.equal(summary.skipped, 1);
+  assert.equal(summary.answerRate, 0);
+  assert.equal(summary.skipRate, 1);
+  removeKey(`daily.${date}`);
+});
+
+test("NPC 点评随会话落盘：再次进入可读回（含 degraded 与原因），旧会话缺字段不报错", () => {
+  const date = "2026-11-19";
+  removeKey(`daily.${date}`);
+  saveDailySession(session(date));
+
+  const decision: NonNullable<DailySession["npc"]> = {
+    domainOrder: ["gaming"],
+    weights: { gaming: 1 },
+    questionOrder: ["q5"],
+    rationale: "先补 gaming",
+    commentary: "今天先把 gaming 的经典作品补两道。",
+    degraded: true,
+    degradedReason: "未配置模型端点",
+  };
+  saveDailyNpc(date, decision);
+  assert.deepEqual(getDailySession(date)?.npc, decision, "刷新后必须还能读回点评");
+
+  // 旧会话（升级前）没有 npc 字段：读取为 undefined，不抛错。
+  const legacyDate = "2026-11-20";
+  removeKey(`daily.${legacyDate}`);
+  saveDailySession(session(legacyDate));
+  assert.equal(getDailySession(legacyDate)?.npc, undefined);
+
+  removeKey(`daily.${date}`);
+  removeKey(`daily.${legacyDate}`);
 });

@@ -88,6 +88,8 @@
 | `POST` | `/api/rooms/[code]/rematch` | 房主发起再来一局 | `playerId` |
 | `GET` / `POST` | `/api/rooms/[code]/stream` | SSE 实时事件流 | 无（只读对外态）；玩家可带 `?playerId=` 上报在线状态 |
 | `POST` | `/api/ai/generate` | AI 出题（管理入口） | `x-ai-admin-token` |
+| `POST` | `/api/npc/coach` | 老师 NPC 点评（模型不可用 → 200 + `degraded`） | 无（限流 20 次/分/IP） |
+| `POST` | `/api/npc/importance` | 单题事件的重要度打分（不可用 → 200 + `degraded`） | 无（限流 120 次/分/IP） |
 
 ---
 
@@ -422,7 +424,125 @@ data: <json>
 
 ---
 
-## 5. 客户端调用注意
+## 5. NPC（老师）
+
+### 5.1 `POST /api/npc/coach` —— 点评生成
+
+**鉴权**：无；按 IP 限流 **20 次/分**。
+
+**降级口径（重要）**：未配置 provider / 模型超时 / 抛错 / 返回非法内容
+→ **仍然返回 200**，响应体带 `degraded: true` 与 `degradedReason`。
+**不是 503** —— 这是预期内的降级路径，用 5xx 会让调用方误判成服务故障。
+
+**入参**
+
+```json
+{
+  "userId": "通识玩家",
+  "domains": ["gaming", "science", "history"],
+  "facts": {
+    "mastery": { "gaming|经典作品": 2 },
+    "topicMastery": { "gaming|经典作品": 2 },
+    "wrongCounts": { "gaming": 3 },
+    "attemptCounts": { "gaming": 4 },
+    "lastSeenAt": { "gaming": 1700000000000 },
+    "touchedDomains": 1
+  },
+  "episodes": [
+    {
+      "questionId": "gaming-0007",
+      "domain": "gaming",
+      "topic": "经典作品",
+      "difficulty": 2,
+      "correct": false,
+      "source": "practice",
+      "at": 1700000000000,
+      "importance": 8,
+      "importanceSource": "rule",
+      "lastAccessedAt": 1700000000000
+    }
+  ],
+  "seed": 123456,
+  "now": 1700000000000
+}
+```
+
+| 字段 | 约束 |
+|---|---|
+| `userId` / `domains` | 必填；`domains` 1–12 个 |
+| `facts` | 必填；缺失的 record 按空对象处理 |
+| `episodes` | 可选，最多 200 条；`source` / `importanceSource` 缺省表示升级前的旧条目 |
+| `seed` / `now` | 必填整数；**服务端不读时钟**，时间由调用方注入 |
+
+**出参（200，降级也是 200）**
+
+```json
+{
+  "commentary": "今天先把 gaming 的经典作品补两道。",
+  "degraded": true,
+  "degradedReason": "未配置模型端点（AI_API_BASE / AI_API_KEY / AI_MODEL 缺失）",
+  "rationale": "gaming 权重最高：薄弱度 1.00 …",
+  "domainOrder": ["gaming", "science", "history"],
+  "weights": { "gaming": 0.83, "science": 0.42 },
+  "weakestDomain": "gaming",
+  "templateCommentary": "…",
+  "provider": null
+}
+```
+
+| 字段 | 说明 |
+|---|---|
+| `degraded` / `degradedReason` | 降级状态与原因；界面必须显式展示 |
+| `provider` | 实际 provider 名；`null` = 未配置模型（客户端据此跳过无意义的重要度请求） |
+
+**错误**：`invalid_input`(400) / 限流 429。**不会**因模型问题返回 5xx。
+
+### 5.2 `POST /api/npc/importance` —— 重要度打分
+
+**鉴权**：无；按 IP 限流 **120 次/分**。
+
+**降级口径**：未配置 provider / 模型失败 → **200 + `degraded: true`**，
+`importance: null`；客户端保持**规则分**，并把 `degradedReason` 写进
+`NpcEpisode.importanceDegradedReason`（不静默降级）。
+
+**客户端时序**：作答当下先按规则分**同步落盘**（用户立刻关页也不丢），
+模型返回后再就地对同一条目升级；条目已被容量上限淘汰时不重建。
+
+**入参**
+
+```json
+{
+  "event": {
+    "questionId": "gaming-0007",
+    "domain": "gaming",
+    "topic": "经典作品",
+    "difficulty": 2,
+    "correct": false,
+    "streak": 0,
+    "source": "practice",
+    "at": 1700000000000
+  },
+  "isNewDomain": false
+}
+```
+
+**出参（200）**
+
+```json
+{ "importance": 8, "degraded": false, "degradedReason": null }
+```
+
+或降级：
+
+```json
+{ "importance": null, "degraded": true, "degradedReason": "未配置模型端点…" }
+```
+
+**错误**：`invalid_input`(400) / 限流 429。模型问题**不会**返回 5xx。
+
+---
+
+## 6. 客户端调用注意
 
 1. **先建/加入拿 `playerId`，再做任何写操作**；
 2. `playerId` 按房间码分别存 localStorage，**绝不从快照取**；

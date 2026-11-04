@@ -18,7 +18,6 @@ import type { DomainId, Question } from "@/types";
 import { domainName } from "@/content/domains";
 import { hashSeed, mulberry32 } from "@/lib/engine/prng";
 
-import { retrieveEpisodes } from "./retrieve";
 import type { NpcContext, NpcDecision } from "../types";
 
 /**
@@ -211,7 +210,14 @@ function normalizeWeights(raw: Record<string, number>): Record<string, number> {
 }
 
 /**
- * 领域优先级排序：权重降序；同权重用种子稳定排序（保证可复现）。
+ * 领域优先级排序：权重降序；同权重用**确定性** tie-break（保证可复现、可传递）。
+ *
+ * 为什么不能用一次性的 `rng()` 比较器：比较器里每次比较都取新的随机数，
+ * 结果**不满足传递性**（a>b、b>c 却可能 c>a），不同 V8 版本的排序实现
+ * 会给出不同顺序 —— 客户端与服务端、甚至两次刷新之间都可能不一致。
+ *
+ * 这里为每个领域预计算一个**只依赖 seed 的稳定 key**，比较器全程纯函数：
+ * 权重降序 → 稳定 key 升序 → 领域 id 字典序兜底，三段都严格可传递。
  *
  * **全仓唯一的领域排序实现**：`decideNpc` 的 `domainOrder` 与降级点评
  * （`commentary.ts` 的 `pickWeakestDomain`）都调用它，
@@ -221,10 +227,17 @@ export function rankDomains(
   context: NpcContext,
   weights: Record<string, number> = computeDomainWeights(context)
 ): DomainId[] {
-  const rng = mulberry32(hashSeed("npc-domains:" + context.seed));
-  return [...context.domains].sort(
-    (a, b) => (weights[b] ?? 0) - (weights[a] ?? 0) || rng() - 0.5 || a.localeCompare(b)
-  );
+  const tieKey = new Map<DomainId, number>();
+  for (const domain of context.domains) {
+    tieKey.set(domain, hashSeed(`npc-domains:${context.seed}:${domain}`));
+  }
+  return [...context.domains].sort((a, b) => {
+    const byWeight = (weights[b] ?? 0) - (weights[a] ?? 0);
+    if (byWeight !== 0) return byWeight;
+    const bySeed = (tieKey.get(a) ?? 0) - (tieKey.get(b) ?? 0);
+    if (bySeed !== 0) return bySeed;
+    return a.localeCompare(b);
+  });
 }
 
 function clamp01(v: number): number {

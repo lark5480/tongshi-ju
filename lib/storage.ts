@@ -139,6 +139,19 @@ export function saveDailySession(session: DailySession): void {
   writeJson(`daily.${session.date}`, session);
 }
 
+/**
+ * 把老师 NPC 的点评写回当日会话（含 `degraded` 与原因）。
+ *
+ * 为什么必须落盘：点评是异步拿到的，刷新页面会重建组件状态；
+ * 只留在内存里会让「锁定会话再次进入」时点评凭空消失。
+ * 当日会话不存在时静默忽略（例如题集还没抽出来就请求了）。
+ */
+export function saveDailyNpc(date: string, npc: DailySession["npc"]): void {
+  const session = getDailySession(date);
+  if (!session) return;
+  saveDailySession({ ...session, ...(npc ? { npc } : {}) });
+}
+
 // ---------------------------------------------------------------- 加练题埋点
 
 /** 加练题埋点缺省值（全部未发生）。 */
@@ -146,6 +159,7 @@ export const EMPTY_PRACTICE_FUNNEL: PracticeFunnel = {
   shown: false,
   answered: false,
   correct: false,
+  skipped: false,
   resultSeen: false,
 };
 
@@ -161,6 +175,8 @@ export function normalizePracticeFunnel(session: DailySession): PracticeFunnel {
     shown: (base?.shown ?? false) || session.practiceReason !== undefined,
     answered: (base?.answered ?? false) || session.practiceCorrect !== undefined,
     correct: (base?.correct ?? false) || session.practiceCorrect === true,
+    // 旧会话没有 `skipped`：用 `practiceSkipped` 回填；两者都缺省即为 false。
+    skipped: (base?.skipped ?? false) || session.practiceSkipped === true,
     resultSeen: base?.resultSeen ?? false,
   };
 }
@@ -202,12 +218,16 @@ export interface PracticeFunnelSummary {
   answered: number;
   /** 加练题答对的天数。 */
   correct: number;
+  /** 主动跳过加练题的天数（与 `answered` 互斥）。 */
+  skipped: number;
   /** 结算页曝光过加练结果的天数。 */
   resultSeen: number;
   /** 作答率 = answered / shown（无展示时为 0）。 */
   answerRate: number;
   /** 正确率 = correct / answered（无作答时为 0）。 */
   correctRate: number;
+  /** 跳过率 = skipped / shown（无展示时为 0）。 */
+  skipRate: number;
 }
 
 const DAY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
@@ -225,15 +245,18 @@ export function getPracticeFunnelSummary(fromDate: string, toDate: string): Prac
     shown: 0,
     answered: 0,
     correct: 0,
+    skipped: 0,
     resultSeen: 0,
     answerRate: 0,
     correctRate: 0,
+    skipRate: 0,
   };
   if (!DAY_PATTERN.test(fromDate) || !DAY_PATTERN.test(toDate) || fromDate > toDate) return empty;
 
   let shown = 0;
   let answered = 0;
   let correct = 0;
+  let skipped = 0;
   let resultSeen = 0;
   let days = 0;
 
@@ -243,6 +266,7 @@ export function getPracticeFunnelSummary(fromDate: string, toDate: string): Prac
       if (funnel.shown) shown++;
       if (funnel.answered) answered++;
       if (funnel.correct) correct++;
+      if (funnel.skipped) skipped++;
       if (funnel.resultSeen) resultSeen++;
     }
     cursor = shiftDay(cursor, 1);
@@ -253,9 +277,11 @@ export function getPracticeFunnelSummary(fromDate: string, toDate: string): Prac
     shown,
     answered,
     correct,
+    skipped,
     resultSeen,
     answerRate: shown > 0 ? answered / shown : 0,
     correctRate: answered > 0 ? correct / answered : 0,
+    skipRate: shown > 0 ? skipped / shown : 0,
   };
 }
 
@@ -329,6 +355,14 @@ export interface AttemptParams {
    * 独立练习流（`/wrong/practice`）只推进错题间隔，不刷熟练度与段位。
    */
   mastery?: boolean;
+  /**
+   * 是否写入 / 推进错题本。默认为 true。
+   *
+   * 第 5 题个人加练按 PRD 口径**只写熟练度**，不写错题本 ——
+   * 加练题是 NPC 主动塞给你的，答错不该再进「待复习」队列（那会让错题本
+   * 被加练题灌满，反而稀释了玩家自己真正答错的题）。
+   */
+  wrong?: boolean;
   now?: number;
 }
 
@@ -343,6 +377,8 @@ export function recordAttempt(params: AttemptParams): void {
   if (params.mastery !== false) {
     recordMastery(params.domain, params.topic, params.correct);
   }
+  // 只写熟练度的场景（第 5 题加练）：到此为止，不碰错题本。
+  if (params.wrong === false) return;
 
   const entries = getWrongEntries();
   const existing = entries.find((e) => e.questionId === params.questionId);

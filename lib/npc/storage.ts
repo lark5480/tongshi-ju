@@ -20,6 +20,7 @@ import type { DomainId, Question } from "@/types";
 
 import { buildFacts, isNewDomain } from "./core/facts";
 import { appendEpisodeCapped, toEpisode } from "./core/episodes";
+import { normalizeImportance } from "./core/importance";
 import type { AnswerEvent, NpcContext, NpcEpisode, NpcFacts } from "./types";
 
 /**
@@ -156,6 +157,8 @@ export function recordNpcEpisode(params: {
   readonly event: AnswerEvent;
   readonly facts: NpcFacts;
   readonly importance?: number | null;
+  /** 模型重要度不可用 / 失败的原因（降级留痕）。 */
+  readonly importanceDegradedReason?: string;
 }): StoredEpisode {
   const isNew = isNewDomain(params.facts, params.event.domain);
   const episode: StoredEpisode = {
@@ -163,9 +166,72 @@ export function recordNpcEpisode(params: {
       event: params.event,
       isNewDomain: isNew,
       modelImportance: params.importance ?? null,
+      importanceDegradedReason: params.importanceDegradedReason,
     }),
     userId: params.userId,
   };
   saveEpisode(params.write, params.read, episode);
   return episode;
+}
+
+/**
+ * 情景条目的稳定标识（同一 `userId` 下由题目 id + 事件时刻唯一确定）。
+ *
+ * 为什么不用自增 id：情景层要跨设备 / 跨刷新保持一致，
+ * `questionId + at` 是事件本身携带的信息，不需要额外维护计数器。
+ */
+export function episodeId(episode: Pick<NpcEpisode, "questionId" | "at">): string {
+  return `${episode.questionId}@${episode.at}`;
+}
+
+/**
+ * 模型重要度回来后，**就地升级**已经落盘的情景条目。
+ *
+ * 背景：事件必须在作答当下**同步落盘**（用户可能立刻关页），
+ * 但模型打分是异步的。因此先用规则分写一条，模型返回后再升级这条：
+ *
+ * - `modelImportance` 有值 → 覆盖重要度、`importanceSource: "model"`、清除降级标记；
+ * - `modelImportance` 为 `null`（模型失败 / 不可用）→ **保持规则分**，
+ *   只更新降级原因（不静默降级）；
+ * - 找不到该条目（已被容量上限淘汰 / 已被清理）→ 返回 `null`，**不重建** ——
+ *   否则会把一条本该淘汰的旧记忆"复活"，让容量上限失效。
+ *
+ * @returns 更新后的条目；未找到时为 `null`
+ */
+export function updateEpisodeImportance(params: {
+  readonly write: (episodes: StoredEpisode[]) => void;
+  readonly read: (key: string) => StoredEpisode[];
+  readonly userId: string;
+  readonly id: string;
+  readonly modelImportance: number | null;
+  readonly degradedReason?: string;
+}): StoredEpisode | null {
+  const all = params.read(NPC_EPISODES_KEY);
+  const index = all.findIndex((e) => e.userId === params.userId && episodeId(e) === params.id);
+  if (index < 0) return null;
+
+  const current = all[index];
+  const next: StoredEpisode =
+    params.modelImportance === null
+      ? {
+          ...current,
+          importanceSource: "rule",
+          importanceDegraded: true,
+          importanceDegradedReason: params.degradedReason ?? "模型重要度不可用，保持规则分",
+        }
+      : {
+          ...current,
+          importance: normalizeImportance(params.modelImportance),
+          importanceSource: "model",
+          importanceDegraded: false,
+        };
+  if (params.modelImportance !== null) {
+    // 模型成功时不保留旧的降级原因（成功路径没有降级）。
+    delete (next as unknown as { importanceDegradedReason?: string }).importanceDegradedReason;
+  }
+
+  const nextAll = [...all];
+  nextAll[index] = next;
+  params.write(nextAll);
+  return next;
 }

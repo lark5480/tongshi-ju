@@ -15,6 +15,8 @@
  * 因此：**对外数据里一律不出现 playerId**，只出现座位号。
  */
 
+import type { NpcDecision } from "@/lib/npc/types";
+
 /** 12 个知识领域。ASCII kebab-case，作为题库文件名与存储 key 的唯一依据。 */
 export type DomainId =
   | "gaming"
@@ -327,18 +329,23 @@ export interface HistoryEntry {
 }
 
 /**
- * 加练题（第 5 题）埋点三态 + 结算曝光。
+ * 加练题（第 5 题）埋点状态 + 结算曝光。
  *
  * 只存本地（当日会话），不做远端上报；汇总查询见
  * `lib/storage.ts` 的 `getPracticeFunnelSummary`。
+ *
+ * **`skipped` 与 `answered` 互斥**：跳过不是作答 —— 把跳过记成 `answered`
+ * 会让「作答率 / 正确率」虚高（跳过的人既拉高分母又拉低正确率）。
  */
 export interface PracticeFunnel {
   /** 已展示：当天题集里出现了第 5 题（含无 NPC 事实时的回落题）。 */
   shown: boolean;
-  /** 已作答：用户提交了第 5 题（无论对错）。 */
+  /** 已作答：用户提交了第 5 题（无论对错）。跳过不算作答。 */
   answered: boolean;
   /** 作答正确。 */
   correct: boolean;
+  /** 主动跳过：用户点了「跳过」直接进入结算，未提交答案。 */
+  skipped: boolean;
   /** 结算页是否曝光了加练结果。 */
   resultSeen: boolean;
 }
@@ -360,8 +367,18 @@ export interface DailySession {
   practiceReason?: string;
   /** 加练题是否答对（未作答则不写）。 */
   practiceCorrect?: boolean;
+  /** 加练题是否被主动跳过（跳过不惩罚，也不记作答）。 */
+  practiceSkipped?: boolean;
   /** 本局的计分口径版本；旧会话缺失 → 按 v1 处理。 */
   scoringVersion?: ScoringVersion;
-  /** 加练题埋点（展示 / 作答 / 正确 / 结算曝光）。 */
+  /** 加练题埋点（展示 / 作答 / 正确 / 跳过 / 结算曝光）。 */
   practiceFunnel?: PracticeFunnel;
+  /**
+   * 老师 NPC 的点评结果（含 `degraded` 与降级原因）。
+   *
+   * 随会话一起落 localStorage：刷新 / 再次进入当天已锁定会话时，
+   * 点评必须仍在（包括降级标注），不能因为只在内存里而消失。
+   * 旧会话没有该字段 → 读取为 `undefined`，不影响任何既有逻辑。
+   */
+  npc?: NpcDecision;
 }

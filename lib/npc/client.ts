@@ -23,9 +23,26 @@ import type { DomainId, Question } from "@/types";
 import { readJson, writeJson } from "@/lib/storage";
 
 import { buildCommentary } from "./core/commentary";
+import { isNewDomain } from "./core/facts";
 import { decideNpc } from "./core/policy";
-import { buildNpcContext, loadEpisodes, recordNpcEpisode, type StoredEpisode } from "./storage";
+import {
+  buildNpcContext,
+  episodeId,
+  loadEpisodes,
+  recordNpcEpisode,
+  updateEpisodeImportance,
+  type StoredEpisode,
+} from "./storage";
 import type { AnswerEvent, NpcContext, NpcDecision, NpcEpisode, NpcFacts } from "./types";
+
+/**
+ * 上一次点评是否证明「模型可用」。
+ *
+ * 只有模型可用时才为**每题**的重要度打分发请求 —— 未配置模型的部署
+ * 不该为每一次作答打一次注定降级的网络往返。服务端仍会做最终判定，
+ * 这里只负责省掉无意义的请求；模型中途失效时，打分请求会自带降级原因。
+ */
+let modelAvailable = false;
 
 /**
  * NPC 情景层的存储键。
@@ -90,6 +107,7 @@ export async function requestCoach(params: {
 
     if (!res.ok) {
       // 服务端不可用 / 未配置模型 → 本地模板兜底
+      modelAvailable = false;
       const reason = `点评服务不可用（HTTP ${res.status}）`;
       return {
         decision: decideNpc({
@@ -110,10 +128,14 @@ export async function requestCoach(params: {
       rationale?: string;
       domainOrder?: DomainId[];
       weights?: Record<string, number>;
+      /** 服务端实际使用的 provider 名；null 表示未配置模型。 */
+      provider?: string | null;
     };
 
     const commentary = typeof data.commentary === "string" ? data.commentary : "";
     const degraded = data.degraded === true;
+    // 「有 provider 且模型可用」才值得为每题的重要度打分再发请求。
+    modelAvailable = typeof data.provider === "string" && data.provider.length > 0 && !degraded;
 
     return {
       decision: {
@@ -129,6 +151,7 @@ export async function requestCoach(params: {
       ...(data.degradedReason ? { degradedReason: data.degradedReason } : {}),
     };
   } catch (error) {
+    modelAvailable = false;
     const reason = `点评请求失败：${error instanceof Error ? error.message : String(error)}`;
     return {
       decision: decideNpc({
@@ -144,24 +167,94 @@ export async function requestCoach(params: {
 }
 
 /**
+ * 请求模型给一次答题事件打重要度（**永不抛错**）。
+ *
+ * 模型不可用 / 请求失败 → 返回 `importance: null` + 降级原因，
+ * 调用方据此保持规则分，并把降级原因写进情景条目（不静默降级）。
+ */
+async function requestImportanceScore(params: {
+  readonly event: AnswerEvent;
+  readonly isNewDomain: boolean;
+}): Promise<{ importance: number | null; degradedReason?: string }> {
+  if (!modelAvailable) {
+    return {
+      importance: null,
+      degradedReason: "未配置模型端点，重要度使用规则打分",
+    };
+  }
+  try {
+    const res = await fetch("/api/npc/importance", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ event: params.event, isNewDomain: params.isNewDomain }),
+    });
+    if (!res.ok) {
+      return { importance: null, degradedReason: `重要度服务不可用（HTTP ${res.status}）` };
+    }
+    const data = (await res.json()) as {
+      importance?: number | null;
+      degraded?: boolean;
+      degradedReason?: string | null;
+    };
+    if (typeof data.importance === "number" && Number.isFinite(data.importance)) {
+      return { importance: data.importance };
+    }
+    return {
+      importance: null,
+      degradedReason: data.degradedReason ?? "重要度服务未返回可用分数",
+    };
+  } catch (error) {
+    return {
+      importance: null,
+      degradedReason: `重要度请求失败：${error instanceof Error ? error.message : String(error)}`,
+    };
+  }
+}
+
+/**
  * 记录一次作答到 NPC 情景层。
  *
  * 与既有 `recordAttempt` **并行**调用（不是替代）——
  * 既有引擎负责熟练度与错题本，NPC 只多存一份事件流。
  */
-export function recordCoachEvent(params: {
+export async function recordCoachEvent(params: {
   readonly userId: string;
   readonly event: AnswerEvent;
   readonly facts: NpcFacts;
-}): void {
+}): Promise<void> {
   try {
-    recordNpcEpisode({
+    const isNew = isNewDomain(params.facts, params.event.domain);
+
+    // ---- 1) 先同步落盘：规则分是保底值 ----
+    //
+    // 模型打分是异步的，而用户可能答完就关页。如果等模型回来再写，
+    // 这次事件就会凭空消失。所以先用规则分写一条，保证"至少记住"。
+    const stored = recordNpcEpisode({
       write: writeStored,
       read: readStored,
       userId: params.userId,
       event: params.event,
       facts: params.facts,
+      importance: null,
+      importanceDegradedReason: modelAvailable
+        ? "模型重要度尚未返回，先按规则分落盘"
+        : "未配置模型端点，重要度使用规则打分",
     });
+
+    // 未配置模型：规则分就是最终结果，不再发注定降级的请求。
+    if (!modelAvailable) return;
+
+    // ---- 2) 模型返回后就地升级；失败则保持规则分、只更新降级原因 ----
+    const scored = await requestImportanceScore({ event: params.event, isNewDomain: isNew });
+    updateEpisodeImportance({
+      write: writeStored,
+      read: readStored,
+      userId: params.userId,
+      id: episodeId(stored),
+      modelImportance: scored.importance,
+      ...(scored.degradedReason ? { degradedReason: scored.degradedReason } : {}),
+    });
+    // 若返回 null（条目已被容量上限淘汰）→ 不重建，避免复活过期记忆。
   } catch {
     // 情景层写入失败不影响主链路（见 writeStored 的说明）。
   }

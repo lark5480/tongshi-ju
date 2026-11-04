@@ -23,12 +23,21 @@ import {
   orderQuestions,
   pickPracticeQuestion,
   pickWeakestDomain,
+  rankDomains,
   retrieveEpisodes,
   ruleImportance,
   toEpisode,
   updateFacts,
 } from "../lib/npc";
-import { buildNpcContext } from "../lib/npc/storage";
+import { extractImportanceFromModel } from "../lib/npc/core/importance";
+import {
+  buildNpcContext,
+  episodeId,
+  NPC_EPISODES_KEY,
+  recordNpcEpisode,
+  updateEpisodeImportance,
+  type StoredEpisode,
+} from "../lib/npc/storage";
 import { buildDailySet } from "../lib/engine/daily";
 import type { DomainId, Question } from "../types";
 
@@ -635,4 +644,169 @@ test("重要度：连击取本局真实值，一路传到情景层（0 不降权
     at: NOW,
   });
   assert.equal(ruleImportance(wrong, false), 10);
+});
+
+// ------------------------------------------------------- 数据契约（source / 重要度来源）
+
+test("情景条目：source 与重要度来源落盘；旧事件缺 source 不补写", () => {
+  const practice = toEpisode({
+    event: event({ questionId: "p1", source: "practice" }),
+    isNewDomain: false,
+  });
+  assert.equal(practice.source, "practice", "加练来源必须保留");
+  assert.equal(practice.importanceSource, "rule", "无模型分 → 规则分");
+  assert.equal(practice.importanceDegraded, true);
+  assert.match(practice.importanceDegradedReason ?? "", /未提供模型重要度/, "降级原因不能为空");
+
+  const modelScored = toEpisode({
+    event: event({ questionId: "m1", source: "public" }),
+    isNewDomain: true,
+    modelImportance: 9,
+  });
+  assert.equal(modelScored.source, "public");
+  assert.equal(modelScored.importanceSource, "model");
+  assert.equal(modelScored.importanceDegraded, false);
+  assert.equal(modelScored.importance, 9);
+
+  const legacy = toEpisode({ event: event({ questionId: "l1" }), isNewDomain: false });
+  assert.equal(legacy.source, undefined, "历史事件没有 source 时不得凭空补字段");
+});
+
+test("重要度解析：接受对象 / 数字，解析失败返回 null（由调用方保持规则分）", () => {
+  assert.equal(extractImportanceFromModel({ importance: 7 }), 7);
+  assert.equal(extractImportanceFromModel({ score: 3 }), 3);
+  assert.equal(extractImportanceFromModel(8), 8);
+  assert.equal(extractImportanceFromModel("10"), 10);
+  assert.equal(extractImportanceFromModel({ foo: "bar" }), null);
+  assert.equal(extractImportanceFromModel(null), null);
+});
+
+// ------------------------------------------------------------- 排序确定性
+
+test("rankDomains：同权重用确定性 tie-break，两次调用与逆序输入结果一致", () => {
+  const context = ctx({
+    domains: ["gaming", "tech", "life", "art"] as NpcContext["domains"],
+  });
+  const weights = { gaming: 0.5, tech: 0.5, life: 0.5, art: 0.5 };
+
+  const first = rankDomains(context, weights);
+  const second = rankDomains(context, weights);
+  assert.deepEqual(first, second, "同输入必须给出同顺序");
+
+  const reversed = rankDomains(
+    { ...context, domains: [...context.domains].reverse() as NpcContext["domains"] },
+    weights
+  );
+  assert.deepEqual(reversed, first, "输入顺序不应影响 tie-break 结果");
+});
+
+// ------------------------------------------- 重要度：先同步落盘，模型回来再升级
+
+/** 内存版情景层：返回 read/write 闭包，方便验证同步落盘与升级。 */
+function episodeStore() {
+  let store: StoredEpisode[] = [];
+  return {
+    write: (list: StoredEpisode[]) => {
+      store = list;
+    },
+    read: (key: string) => (key === NPC_EPISODES_KEY ? store : []),
+    current: () => store,
+  };
+}
+
+test("重要度升级：先按规则分同步落盘，模型返回后就地升级", () => {
+  const db = episodeStore();
+  const facts = buildFacts({ mastery: {}, attemptCounts: { gaming: 1 } });
+  const ev = event({ questionId: "u1", correct: false, at: NOW });
+
+  const stored = recordNpcEpisode({
+    write: db.write,
+    read: db.read,
+    userId: "u",
+    event: ev,
+    facts,
+    importance: null,
+    importanceDegradedReason: "模型重要度尚未返回，先按规则分落盘",
+  });
+
+  // 同步落盘：此刻模型还没回来，但条目已经存在且是规则分。
+  assert.equal(db.current().length, 1, "同步落盘不能等模型");
+  assert.equal(stored.importance, 10, "答错 → 规则分 10");
+  assert.equal(stored.importanceSource, "rule");
+  assert.equal(stored.importanceDegraded, true);
+
+  const upgraded = updateEpisodeImportance({
+    write: db.write,
+    read: db.read,
+    userId: "u",
+    id: episodeId(stored),
+    modelImportance: 7,
+  });
+  assert.ok(upgraded);
+  assert.equal(upgraded.importance, 7);
+  assert.equal(upgraded.importanceSource, "model");
+  assert.equal(upgraded.importanceDegraded, false);
+  assert.equal(upgraded.importanceDegradedReason, undefined);
+  assert.equal(db.current().length, 1, "升级是就地更新，不新增条目");
+});
+
+test("重要度升级：条目已被容量上限淘汰 → 返回 null，不重建", () => {
+  const db = episodeStore();
+  const facts = buildFacts({ mastery: {}, attemptCounts: { gaming: 1 } });
+  const ev = event({ questionId: "u2", correct: true, at: NOW });
+
+  const stored = recordNpcEpisode({
+    write: db.write,
+    read: db.read,
+    userId: "u",
+    event: ev,
+    facts,
+    importance: null,
+  });
+  const id = episodeId(stored);
+
+  // 模拟容量淘汰：写入时该条目已不在列表里。
+  db.write([]);
+  const result = updateEpisodeImportance({
+    write: db.write,
+    read: db.read,
+    userId: "u",
+    id,
+    modelImportance: 9,
+  });
+
+  assert.equal(result, null, "找不到条目时不得凭空重建");
+  assert.equal(db.current().length, 0, "淘汰的条目不能被复活");
+});
+
+test("重要度升级：模型失败不改分，只更新降级原因", () => {
+  const db = episodeStore();
+  const facts = buildFacts({ mastery: {}, attemptCounts: { gaming: 1 } });
+  const ev = event({ questionId: "u3", correct: false, at: NOW });
+
+  const stored = recordNpcEpisode({
+    write: db.write,
+    read: db.read,
+    userId: "u",
+    event: ev,
+    facts,
+    importance: null,
+    importanceDegradedReason: "模型重要度尚未返回，先按规则分落盘",
+  });
+  const ruleScore = stored.importance;
+
+  const updated = updateEpisodeImportance({
+    write: db.write,
+    read: db.read,
+    userId: "u",
+    id: episodeId(stored),
+    modelImportance: null,
+    degradedReason: "重要度服务不可用（HTTP 500）",
+  });
+
+  assert.ok(updated);
+  assert.equal(updated.importance, ruleScore, "模型失败不得改动规则分");
+  assert.equal(updated.importanceSource, "rule");
+  assert.equal(updated.importanceDegraded, true);
+  assert.equal(updated.importanceDegradedReason, "重要度服务不可用（HTTP 500）");
 });

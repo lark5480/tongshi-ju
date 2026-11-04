@@ -3,11 +3,11 @@
  *
  * 「老师 NPC」的全部数据结构。**纯类型**，无运行时逻辑、无 IO。
  *
- * 设计约束（见 `docs/decisions/01-NPC立项裁决清单.md`）：
- * - 裁决 12：核心决策纯函数化 —— 本目录只描述形状，逻辑在 `lib/npc/core/`；
- * - 裁决 5：只读既有引擎 —— NPC 的输入是**既有引擎产出的数据**（mastery / 错题本 /
+ * 设计约束（权威源：`docs/NPC-ARCHITECTURE.md`）：
+ * - 核心决策纯函数化 —— 本目录只描述形状，逻辑在 `lib/npc/core/`；
+ * - 只读既有引擎 —— NPC 的输入是**既有引擎产出的数据**（mastery / 错题本 /
  *   答题历史），不反向依赖、不修改 `lib/engine/*`；
- * - 裁决 15：记忆按用户隔离 —— 所有带用户维度的结构都以 `userId` 为第一层键。
+ * - 记忆按用户隔离 —— 所有带用户维度的结构都以 `userId` 为第一层键。
  */
 
 import type { DomainId, Question } from "@/types";
@@ -78,6 +78,13 @@ export interface NpcEpisode {
   readonly topic: string;
   readonly difficulty: number;
   readonly correct: boolean;
+  /**
+   * 作答来源：`public` = 前 4 题（计分）；`practice` = 第 5 题加练（不计分）。
+   *
+   * 可选：升级前的历史条目没有该字段，读取方一律按 `public` 处理，
+   * **不回溯改写旧条目**。
+   */
+  readonly source?: "public" | "practice";
   /** 事件时刻。 */
   readonly at: number;
   /**
@@ -87,6 +94,16 @@ export interface NpcEpisode {
    * 两条路径落在**同一标度**，否则降级前后行为不可比（裁决 9）。
    */
   readonly importance: number;
+  /** 重要度的实际来源：`model` = LLM 打分；`rule` = 规则降级打分。 */
+  readonly importanceSource?: "model" | "rule";
+  /**
+   * 重要度打分是否走了降级路径（模型不可用 / 失败）。
+   *
+   * 降级**不能静默**：旧条目缺省视为 `false`（升级前没有这一概念）。
+   */
+  readonly importanceDegraded?: boolean;
+  /** 重要度降级原因（`importanceDegraded` 为 true 时填写）。 */
+  readonly importanceDegradedReason?: string;
   /** 最近一次被检索到的时刻（recency 衰减的基准）。 */
   readonly lastAccessedAt: number;
 }
