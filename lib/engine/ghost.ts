@@ -24,6 +24,10 @@
  * 本模块是纯函数：比较逻辑与文案生成都不碰 IO。
  */
 
+import type { ScoringVersion } from "@/types";
+
+import { SCORING_VERSION } from "@/lib/engine/scoring";
+
 /** 影子的领域集合键（由 `ghostKey` 生成）。 */
 export type GhostKey = string;
 
@@ -41,6 +45,26 @@ export interface GhostRecord {
   plays: number;
   /** 历史最佳总用时（毫秒），用于"比上次快"；无数据时为 null。 */
   bestElapsed: number | null;
+  /** 记录使用的计分口径；旧记录缺失 → 按 v1 处理。 */
+  scoringVersion?: ScoringVersion;
+}
+
+/** 影子记录的计分口径（缺失即 v1）。 */
+export function ghostVersionOf(ghost: GhostRecord): ScoringVersion {
+  return ghost.scoringVersion ?? 1;
+}
+
+/**
+ * 影子是否可参与对比。
+ *
+ * 跨口径分数**不可比**（v1 是 5 题计分、v2 是 4 题计分），
+ * 拿旧影子当基准会把"口径变化"误读成"水平下降"。
+ */
+export function isGhostComparable(
+  ghost: GhostRecord | null,
+  version: ScoringVersion = SCORING_VERSION
+): boolean {
+  return ghost !== null && ghostVersionOf(ghost) === version;
 }
 
 /**
@@ -156,9 +180,15 @@ export function updateGhost(
     correct: number;
     date: string;
     elapsed: number | null;
+    /** 本次成绩的计分口径；缺省沿用旧影子的口径，没有旧影子时用当前口径。 */
+    scoringVersion?: ScoringVersion;
   }
 ): GhostRecord {
-  if (!ghost) {
+  const version = next.scoringVersion ?? (ghost ? ghostVersionOf(ghost) : SCORING_VERSION);
+  // 跨口径不继承：旧影子不能成为新口径的基准，也不把旧局数带过来。
+  const base = ghost && ghostVersionOf(ghost) === version ? ghost : null;
+
+  if (!base) {
     return {
       key: next.key,
       bestScore: next.score,
@@ -166,22 +196,24 @@ export function updateGhost(
       bestDate: next.date,
       plays: 1,
       bestElapsed: next.elapsed,
+      scoringVersion: version,
     };
   }
 
-  const better = next.score > ghost.bestScore;
+  const better = next.score > base.bestScore;
   const sameScoreFaster =
-    next.score === ghost.bestScore &&
+    next.score === base.bestScore &&
     next.elapsed !== null &&
-    (ghost.bestElapsed === null || next.elapsed < ghost.bestElapsed);
+    (base.bestElapsed === null || next.elapsed < base.bestElapsed);
 
   return {
-    key: ghost.key,
-    bestScore: better ? next.score : ghost.bestScore,
-    bestCorrect: better ? next.correct : ghost.bestCorrect,
-    bestDate: better ? next.date : ghost.bestDate,
-    plays: ghost.plays + 1,
-    bestElapsed: better ? next.elapsed : sameScoreFaster ? next.elapsed : ghost.bestElapsed,
+    key: base.key,
+    bestScore: better ? next.score : base.bestScore,
+    bestCorrect: better ? next.correct : base.bestCorrect,
+    bestDate: better ? next.date : base.bestDate,
+    plays: base.plays + 1,
+    bestElapsed: better ? next.elapsed : sameScoreFaster ? next.elapsed : base.bestElapsed,
+    scoringVersion: version,
   };
 }
 

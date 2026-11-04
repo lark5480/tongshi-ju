@@ -20,11 +20,22 @@ Next.js 14 (App Router) · React 18 · TypeScript 5.5 · Tailwind 3 · SSE
 
 > 违反任何一条都会破坏产品本身，不是"风格问题"。
 
-### 2.1 每日挑战必须无状态
+### 2.1 每日挑战必须无状态（4+1 分轨）
 
-题集必须由「日期 + 领域集合」的纯函数确定（`lib/engine/daily.ts`），
+题集的前 4 题必须由「日期 + 领域集合」的纯函数确定（`lib/engine/daily.ts`），
 客户端与 duel 服务端共用同一份实现；**不得**改成服务端保存当天题集。
-**AI 题永不进入每日挑战。** 说明见 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) §2。
+**AI 题永不进入每日挑战。**
+
+**破例条款：第 5 题是个人加练题。** 它由老师 NPC 依据本人熟练度从题库另选
+（`lib/npc/core/practice.ts`），**不计分、不计排名、不影响 duel/PK**，
+作答只写学习进度，并在事件里标注 `source: "practice"`。
+例外范围仅限第 5 题；前 4 题的「全网同题」不得动摇。理由：NPC 要真实影响出题，
+而前 4 题必须保留红榜与同题 PK 的可比性。说明见 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) §2。
+
+**口径版本（v1 / v2）。** 历史记录用 `scoringVersion` 标记：**缺失即 v1**（旧版 5 题计分），
+新记录写 v2（4 题计分）。旧记录**不重算、不补齐"第 5 题"的归属**；生涯累计 / 段位 /
+影子对手对比只比同版本，跨版本不参与排名类计算。加练题只写本地埋点
+（展示 / 作答 / 正确 / 结算曝光，`getPracticeFunnelSummary` 可查），不做远端上报。
 
 ### 2.2 服务端权威（仅限 duel 房间）
 
@@ -50,6 +61,18 @@ Next.js 14 (App Router) · React 18 · TypeScript 5.5 · Tailwind 3 · SSE
 **PRNG、题库、计分、日期全部自实现**，不引入游戏 / 随机 / 日期库。
 新增依赖需要先说明为什么现有能力做不到。
 
+### 2.5 NPC 只读引擎，且只改第 5 题
+
+老师 NPC（`lib/npc/`）是**难度调节器**，不是聊天机器人。三条硬约束：
+
+1. **NPC 不写引擎逻辑** —— 决策与选加练题的代码全在 `lib/npc/`，只读引擎产出的数据
+   （熟练度 / 错题本 / 历史）。4+1 的计分口径属于产品规则，常量与结算纯函数放在
+   `lib/engine/scoring.ts`（界面与测试共用）。引擎契约见 [`docs/NPC-ARCHITECTURE.md`](docs/NPC-ARCHITECTURE.md)。
+2. **不改前 4 题（全网同题）** —— 前 4 题必须**全网一致**（同日期 + 同领域集合 → 同一份题），
+   否则红榜与同题 PK 失去意义。NPC 只允许影响第 5 题（个人加练、不计分，见 §2.1）。
+3. **不静默降级** —— 模型不可用 / 超时 / 失败 → 模板点评 + `degraded: true` + 原因，
+   且降级信息要**显式出现在界面上**。悄悄换个策略假装无事发生，等于报告里的降级信息是假的。
+
 ---
 
 ## 3. 目录速查
@@ -63,6 +86,7 @@ lib/engine/   纯函数（客户端与服务端共用，无 IO）
 lib/store/    房间状态机 + 入参校验
 lib/ai/       provider / prompt / 校验
 lib/content/  指纹 / 题库加载 / 敏感词
+lib/npc/      老师 NPC：纯函数内核 + 台词层 + 接入层（只读引擎，详见 docs/NPC-ARCHITECTURE.md）
 content/domains/  12 域元数据 + 题库 JSON
 __tests__/    单元测试；e2e/ Playwright 冒烟；scripts/ 内容校验
 docs/         长文（索引见 §5）
@@ -103,6 +127,7 @@ npm run lint && npm run format:check
 | 视觉 / token / 组件 / 文案 | [`docs/design/ui-system.md`](docs/design/ui-system.md) |
 | 产品需求 / 玩法规则 / 验收标准 | [`docs/PRD.md`](docs/PRD.md) |
 | 部署 / 联机隧道 / 双轨形态 | [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) |
+| 老师 NPC / 记忆模型 / 降级契约 | [`docs/NPC-ARCHITECTURE.md`](docs/NPC-ARCHITECTURE.md) |
 | 团队角色 / 流水线 / 交付规范 | [`docs/TEAM.md`](docs/TEAM.md) |
 
 ---

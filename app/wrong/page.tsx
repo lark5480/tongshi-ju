@@ -118,7 +118,7 @@ export default function WrongPage() {
         <div className="panel p-3">
           <div className="flex items-center gap-1.5 text-xs text-muted">
             <GraduationCap size={13} className="text-success" aria-hidden />
-            掌握度
+            熟练度
           </div>
           <div className="tabular mt-1 text-xl font-bold">{ratio}%</div>
         </div>

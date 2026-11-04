@@ -12,7 +12,7 @@
  * 「被对手抢先」不是失误，连击保持不变（裁定与理由见 `lib/store/room.ts` 文件头）。
  */
 
-import type { Difficulty, DomainId } from "@/types";
+import type { Difficulty, DomainId, ScoringVersion } from "@/types";
 
 export const BASE_POINTS: Record<Difficulty, number> = { 1: 10, 2: 20, 3: 30 };
 
@@ -112,4 +112,142 @@ export function decideWinner(
     return null; // 平局
   }
   return sorted[0];
+}
+
+/**
+ * 4+1 分轨：每日挑战前 **4** 题全网同题并计分，第 5 题是个人的加练题。
+ *
+ * 题数常量放在引擎里，客户端、榜单与测试共用同一口径；
+ * 第 5 题的作答仍写熟练度，但不进入这里的结算。
+ */
+export const PUBLIC_DAILY_COUNT = 4;
+
+export interface ScoredAnswer {
+  readonly correct: boolean;
+  readonly points: number;
+  readonly combo: number;
+  /** 是否为第 5 题（个人加练）。 */
+  readonly practice?: boolean;
+}
+
+/**
+ * 只按**公共题**结算：得分、答对题数、最高连击。
+ *
+ * 抽成纯函数，客户端结算与单测共用同一份代码 —— 防止"界面上少了 1 题、
+ * 榜单却仍按 5 题算"这类口径漂移。
+ */
+export function settlePublicAnswers(answers: readonly ScoredAnswer[]): {
+  score: number;
+  correct: number;
+  maxCombo: number;
+} {
+  const publicAnswers = answers.filter((a) => !a.practice);
+  return {
+    score: publicAnswers.reduce((sum, a) => sum + a.points, 0),
+    correct: publicAnswers.filter((a) => a.correct).length,
+    maxCombo: publicAnswers.reduce((max, a) => Math.max(max, a.combo), 0),
+  };
+}
+
+/**
+ * 当前新记录使用的计分口径：v2 = 4+1 分轨（前 4 题计分）。
+ *
+ * 历史记录不重算：v1（旧版 5 题计分）与 v2 各自独立统计，
+ * 跨版本不参与排名类计算（生涯累计 / 段位 / 影子对比）。
+ */
+export const SCORING_VERSION: ScoringVersion = 2;
+
+/**
+ * 读取记录的口径版本：**缺失即 v1**。
+ *
+ * 这是兼容旧数据的唯一判据 —— 不迁移、不补字段、不重算分数。
+ */
+export function scoringVersionOf(entry: {
+  readonly scoringVersion?: ScoringVersion;
+}): ScoringVersion {
+  return entry.scoringVersion ?? 1;
+}
+
+/** 界面上给用户看的口径标签。 */
+export function scoringVersionLabel(version: ScoringVersion): string {
+  return version === 1 ? "旧口径（5 题）" : "4 题计分";
+}
+
+// ---------------------------------------------------------------- 生涯累计（按口径分桶）
+
+/** 单一口径下的生涯累计。 */
+export interface LifetimeStats {
+  /** 生涯答对题数。 */
+  totalCorrect: number;
+  /** 生涯完成局数。 */
+  totalPlayed: number;
+  /** 生涯累计星级。 */
+  totalStars: number;
+  /** 生涯最高连击。 */
+  bestCombo: number;
+}
+
+/** 生涯累计存储：每个口径一个独立桶，互不混算。 */
+export interface LifetimeStore {
+  v1?: LifetimeStats;
+  v2?: LifetimeStats;
+}
+
+export const EMPTY_LIFETIME: LifetimeStats = {
+  totalCorrect: 0,
+  totalPlayed: 0,
+  totalStars: 0,
+  bestCombo: 0,
+};
+
+function fillLifetime(raw: unknown): LifetimeStats {
+  const value = (raw ?? {}) as Partial<LifetimeStats>;
+  return {
+    totalCorrect: value.totalCorrect ?? 0,
+    totalPlayed: value.totalPlayed ?? 0,
+    totalStars: value.totalStars ?? 0,
+    bestCombo: value.bestCombo ?? 0,
+  };
+}
+
+/**
+ * 归一化生涯累计存储。
+ *
+ * 旧格式是**扁平 bucket**（没有 v1/v2 包装），按 v1 处理 ——
+ * 旧数据就是 5 题口径，不重算、不迁移成 v2。
+ */
+export function normalizeLifetimeStore(raw: unknown): LifetimeStore {
+  if (!raw || typeof raw !== "object") return {};
+  const obj = raw as Record<string, unknown>;
+  if ("v1" in obj || "v2" in obj) {
+    return {
+      ...(obj.v1 !== undefined ? { v1: fillLifetime(obj.v1) } : {}),
+      ...(obj.v2 !== undefined ? { v2: fillLifetime(obj.v2) } : {}),
+    };
+  }
+  if ("totalPlayed" in obj || "totalCorrect" in obj) {
+    return { v1: fillLifetime(obj) };
+  }
+  return {};
+}
+
+/** 取某个口径的生涯累计（缺省桶视为全 0）。 */
+export function lifetimeForVersion(
+  store: LifetimeStore,
+  version: ScoringVersion = SCORING_VERSION
+): LifetimeStats {
+  return (version === 1 ? store.v1 : store.v2) ?? EMPTY_LIFETIME;
+}
+
+/** 累加一局到某个口径的桶（纯函数）。 */
+export function addLifetime(
+  prev: LifetimeStats,
+  delta: { correct: number; stars: number; maxCombo: number }
+): LifetimeStats {
+  return {
+    totalCorrect: prev.totalCorrect + Math.max(0, delta.correct),
+    totalPlayed: prev.totalPlayed + 1,
+    totalStars: prev.totalStars + Math.max(0, delta.stars),
+    bestCombo: Math.max(prev.bestCombo, delta.maxCombo),
+  };
 }

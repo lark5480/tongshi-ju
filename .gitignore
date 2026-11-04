@@ -56,3 +56,6 @@ cloudflared.exe
 /test-results/
 /playwright-report/
 /blob-report/
+
+# 本地临时运行目录（dev 日志等）
+/.tmp-run/

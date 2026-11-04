@@ -13,14 +13,25 @@ import type {
   DomainId,
   HistoryEntry,
   MasteryMap,
+  PracticeFunnel,
   Profile,
   RoomSnapshot,
+  ScoringVersion,
   WrongEntry,
 } from "@/types";
 import type { GhostRecord } from "@/lib/engine/ghost";
+import { isGhostComparable } from "@/lib/engine/ghost";
 import { shiftDay } from "@/lib/engine/date";
 import { createWrongEntry, onCorrect, onWrong } from "@/lib/engine/repetition";
 import { computeRank, countTopicsTouched, type RankSnapshot } from "@/lib/engine/rank";
+import {
+  SCORING_VERSION,
+  addLifetime,
+  lifetimeForVersion,
+  normalizeLifetimeStore,
+  type LifetimeStats,
+  type LifetimeStore,
+} from "@/lib/engine/scoring";
 
 const PREFIX = "tongshi-ju.";
 
@@ -126,6 +137,126 @@ export function getDailySession(date: string): DailySession | null {
 
 export function saveDailySession(session: DailySession): void {
   writeJson(`daily.${session.date}`, session);
+}
+
+// ---------------------------------------------------------------- 加练题埋点
+
+/** 加练题埋点缺省值（全部未发生）。 */
+export const EMPTY_PRACTICE_FUNNEL: PracticeFunnel = {
+  shown: false,
+  answered: false,
+  correct: false,
+  resultSeen: false,
+};
+
+/**
+ * 归一化当日会话的加练埋点。
+ *
+ * 旧会话可能没有 `practiceFunnel` 字段 —— 用既有 `practiceReason` /
+ * `practiceCorrect` 推断，保证升级前的会话也能读出正确的三态。
+ */
+export function normalizePracticeFunnel(session: DailySession): PracticeFunnel {
+  const base = session.practiceFunnel;
+  return {
+    shown: (base?.shown ?? false) || session.practiceReason !== undefined,
+    answered: (base?.answered ?? false) || session.practiceCorrect !== undefined,
+    correct: (base?.correct ?? false) || session.practiceCorrect === true,
+    resultSeen: base?.resultSeen ?? false,
+  };
+}
+
+/** 读取某天的加练埋点；当天没有会话则返回 null。 */
+export function getPracticeFunnel(date: string): PracticeFunnel | null {
+  const session = getDailySession(date);
+  return session ? normalizePracticeFunnel(session) : null;
+}
+
+/**
+ * 更新某天的加练埋点（局部 patch）。
+ *
+ * 只存本地当日会话，不改变分数 / 排名 / 连击。
+ */
+export function updatePracticeFunnel(
+  date: string,
+  patch: Partial<PracticeFunnel>
+): PracticeFunnel | null {
+  const session = getDailySession(date);
+  if (!session) return null;
+  const next = { ...normalizePracticeFunnel(session), ...patch };
+  saveDailySession({ ...session, practiceFunnel: next });
+  return next;
+}
+
+/** 结算页曝光加练结果（幂等）。 */
+export function markPracticeResultSeen(date: string): void {
+  updatePracticeFunnel(date, { resultSeen: true });
+}
+
+/** 加练题漏斗汇总（按日期区间，闭区间）。 */
+export interface PracticeFunnelSummary {
+  /** 区间天数。 */
+  days: number;
+  /** 展示过加练题的天数。 */
+  shown: number;
+  /** 作答过加练题的天数。 */
+  answered: number;
+  /** 加练题答对的天数。 */
+  correct: number;
+  /** 结算页曝光过加练结果的天数。 */
+  resultSeen: number;
+  /** 作答率 = answered / shown（无展示时为 0）。 */
+  answerRate: number;
+  /** 正确率 = correct / answered（无作答时为 0）。 */
+  correctRate: number;
+}
+
+const DAY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+const SUMMARY_MAX_DAYS = 366;
+
+/**
+ * 查询某段日期内加练题的「展示 / 作答 / 正确 / 结算曝光」汇总。
+ *
+ * 用途：以后按曝光调参（例如作答率过低说明选题依据不吸引人）。
+ * 只读本地会话，不做远端上报。
+ */
+export function getPracticeFunnelSummary(fromDate: string, toDate: string): PracticeFunnelSummary {
+  const empty: PracticeFunnelSummary = {
+    days: 0,
+    shown: 0,
+    answered: 0,
+    correct: 0,
+    resultSeen: 0,
+    answerRate: 0,
+    correctRate: 0,
+  };
+  if (!DAY_PATTERN.test(fromDate) || !DAY_PATTERN.test(toDate) || fromDate > toDate) return empty;
+
+  let shown = 0;
+  let answered = 0;
+  let correct = 0;
+  let resultSeen = 0;
+  let days = 0;
+
+  for (let cursor = fromDate; cursor <= toDate && days < SUMMARY_MAX_DAYS; days++) {
+    const funnel = getPracticeFunnel(cursor);
+    if (funnel) {
+      if (funnel.shown) shown++;
+      if (funnel.answered) answered++;
+      if (funnel.correct) correct++;
+      if (funnel.resultSeen) resultSeen++;
+    }
+    cursor = shiftDay(cursor, 1);
+  }
+
+  return {
+    days,
+    shown,
+    answered,
+    correct,
+    resultSeen,
+    answerRate: shown > 0 ? answered / shown : 0,
+    correctRate: answered > 0 ? correct / answered : 0,
+  };
 }
 
 // ---------------------------------------------------------------- 连续天数
@@ -244,43 +375,25 @@ export function recordAttempt(params: AttemptParams): void {
  *
  * `getHistory()` 只保留最近 30 场（给"最近战绩"页面看），
  * 但段位需要的是**生涯**数据，所以单独存一份只增不减的计数。
+ *
+ * ⚠️ **按口径分桶**：v1（旧版 5 题计分）与 v2（4+1 前 4 题计分）各存一份；
+ * 旧数据是扁平 bucket，归一化时按 v1 处理，**不重算、不迁移成 v2**。
  */
-export interface LifetimeStats {
-  /** 生涯答对题数。 */
-  totalCorrect: number;
-  /** 生涯完成局数。 */
-  totalPlayed: number;
-  /** 生涯累计星级。 */
-  totalStars: number;
-  /** 生涯最高连击。 */
-  bestCombo: number;
+export type { LifetimeStats } from "@/lib/engine/scoring";
+
+export function getLifetimeStats(version: ScoringVersion = SCORING_VERSION): LifetimeStats {
+  return lifetimeForVersion(normalizeLifetimeStore(readJson<unknown>("lifetime", {})), version);
 }
 
-const DEFAULT_LIFETIME: LifetimeStats = {
-  totalCorrect: 0,
-  totalPlayed: 0,
-  totalStars: 0,
-  bestCombo: 0,
-};
-
-export function getLifetimeStats(): LifetimeStats {
-  return { ...DEFAULT_LIFETIME, ...readJson<Partial<LifetimeStats>>("lifetime", {}) };
-}
-
-/** 累加一次对局的成绩。 */
-export function bumpLifetimeStats(delta: {
-  correct: number;
-  stars: number;
-  maxCombo: number;
-}): LifetimeStats {
-  const prev = getLifetimeStats();
-  const next: LifetimeStats = {
-    totalCorrect: prev.totalCorrect + Math.max(0, delta.correct),
-    totalPlayed: prev.totalPlayed + 1,
-    totalStars: prev.totalStars + Math.max(0, delta.stars),
-    bestCombo: Math.max(prev.bestCombo, delta.maxCombo),
-  };
-  writeJson("lifetime", next);
+/** 累加一次对局到指定口径的生涯桶。 */
+export function bumpLifetimeStats(
+  delta: { correct: number; stars: number; maxCombo: number },
+  version: ScoringVersion = SCORING_VERSION
+): LifetimeStats {
+  const store = normalizeLifetimeStore(readJson<unknown>("lifetime", {}));
+  const next = addLifetime(lifetimeForVersion(store, version), delta);
+  const merged: LifetimeStore = version === 1 ? { ...store, v1: next } : { ...store, v2: next };
+  writeJson("lifetime", merged);
   return next;
 }
 
@@ -289,9 +402,12 @@ export function bumpLifetimeStats(delta: {
  *
  * 组装 `RankInput` 并调用纯函数 `computeRank`。
  * 数据全部来自本地：生涯累计 + 熟练度表 + 最长连胜。
+ *
+ * 段位属于**排名类口径**：只读同版本（默认 v2）的生涯桶，
+ * 旧口径记录不参与 —— 否则 5 题时代的分数会把新段位抬得虚高。
  */
-export function getRankSnapshot(): RankSnapshot {
-  const life = getLifetimeStats();
+export function getRankSnapshot(version: ScoringVersion = SCORING_VERSION): RankSnapshot {
+  const life = getLifetimeStats(version);
   const mastery = getMastery();
   const streak = getStreak();
   return computeRank({
@@ -319,6 +435,20 @@ export function getGhosts(): Record<string, GhostRecord> {
 /** 取某组领域下的影子；没有则返回 null。 */
 export function getGhost(key: string): GhostRecord | null {
   return getGhosts()[key] ?? null;
+}
+
+/**
+ * 取**同口径**的影子；跨口径视为没有影子（返回 null）。
+ *
+ * 影子对比属于排名类计算：v1 是 5 题计分、v2 是 4 题计分，
+ * 分数不可比。拿旧影子当基准会把"口径变化"误读成"水平下降"。
+ */
+export function getComparableGhost(
+  key: string,
+  version: ScoringVersion = SCORING_VERSION
+): GhostRecord | null {
+  const ghost = getGhosts()[key] ?? null;
+  return isGhostComparable(ghost, version) ? ghost : null;
 }
 
 /** 写入（或覆盖）某组领域下的影子。 */

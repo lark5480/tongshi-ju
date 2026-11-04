@@ -2,7 +2,16 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { ArrowRight, Flame, Orbit, Star, Swords, Trophy } from "lucide-react";
+import {
+  ArrowRight,
+  Flame,
+  MessageCircle,
+  Orbit,
+  Sparkles,
+  Star,
+  Swords,
+  Trophy,
+} from "lucide-react";
 
 import { useDailyChallenge } from "@/hooks/useDailyChallenge";
 import { QuestionCard } from "@/components/quiz/QuestionCard";
@@ -12,11 +21,27 @@ import { ShareCard } from "@/components/result/ShareCard";
 import { Button, buttonClass } from "@/components/ui/Button";
 import { DOMAINS } from "@/content/domains";
 import { domainIcon } from "@/components/domain/DomainCard";
-import { getProfile, getRankSnapshot, getStreak } from "@/lib/storage";
+import { getProfile, getRankSnapshot, getStreak, markPracticeResultSeen } from "@/lib/storage";
 import { ghostSourceLabel, ghostVerdictText } from "@/lib/engine/ghost";
 import { dailyModeLabel } from "@/lib/engine/blindbox";
-import { DIFFICULTY_LIMIT_MS as LIMIT_MS, maxScore } from "@/lib/engine/scoring";
+import {
+  DIFFICULTY_LIMIT_MS as LIMIT_MS,
+  maxScore,
+  PUBLIC_DAILY_COUNT,
+} from "@/lib/engine/scoring";
 import type { RankSnapshot } from "@/lib/engine/rank";
+
+/**
+ * 降级原因 → 玩家可读文案。
+ *
+ * 「未配置模型」是主动选择，「调用失败 / 超时」是故障 —— 两者不能混成一句
+ * 「未接入模型：调用超时」，那会让玩家以为项目不支持模型。
+ */
+function degradedLabel(reason?: string): string {
+  if (!reason) return "未配置模型，由确定性模板给出点评";
+  if (reason.includes("未配置")) return "未配置模型，由确定性模板给出点评";
+  return `模型调用失败，已降级为确定性模板：${reason}`;
+}
 
 export default function DailyPage() {
   const c = useDailyChallenge();
@@ -32,6 +57,13 @@ export default function DailyPage() {
     setProfileName(p.name);
     setProfileEmoji(p.emoji);
   }, [c.finished]);
+
+  // 加练题埋点：结算页曝光（幂等，只写当日会话）。
+  useEffect(() => {
+    if (c.finished && c.questions.length > PUBLIC_DAILY_COUNT) {
+      markPracticeResultSeen(c.date);
+    }
+  }, [c.finished, c.questions.length, c.date]);
 
   if (c.loading) {
     // 骨架屏：结构稳定、不闪烁（无障碍指南的加载反馈要求）
@@ -64,8 +96,15 @@ export default function DailyPage() {
     );
   }
 
-  const maxPossible = maxScore(c.questions.map((q) => q.difficulty));
+  // 4+1 分轨：只有前 4 题计分，第 5 题是个人加练。
+  const publicTotal = Math.min(PUBLIC_DAILY_COUNT, c.questions.length);
+  const maxPossible = maxScore(c.questions.slice(0, PUBLIC_DAILY_COUNT).map((q) => q.difficulty));
   const correctCount = c.correctCount;
+  const practiceQuestion = c.questions[PUBLIC_DAILY_COUNT];
+  const practiceDomain = practiceQuestion
+    ? (DOMAINS.find((d) => d.id === practiceQuestion.domain)?.name ?? "")
+    : "";
+  const hasPractice = c.questions.length > PUBLIC_DAILY_COUNT;
 
   // 知识链槽位：已答的题在前，未答的题在后
   const chainSlots: ChainSlot[] = c.questions.map((q, i) => {
@@ -94,8 +133,23 @@ export default function DailyPage() {
           <div>
             <div className="tabular text-4xl font-bold text-accent">{c.score}</div>
             <div className="mt-1 text-sm text-muted">
-              答对 {correctCount} / {c.questions.length} 题 · 最高连击 {c.maxCombo}
+              公共题答对 {correctCount} / {publicTotal} 题 · 最高连击 {c.maxCombo}
             </div>
+            {hasPractice && (
+              <div className="mt-1 text-xs">
+                {c.practiceCorrect === true ? (
+                  <span className="text-success">
+                    补上这道题，你的 {practiceDomain} 熟练度 +1 · 不计分，不改变排名与连击
+                  </span>
+                ) : c.practiceCorrect === false ? (
+                  <span className="text-dim">
+                    加练题答错了 · 不计分、不计排名，熟练度已记入错题本
+                  </span>
+                ) : (
+                  <span className="text-dim">加练题跳过了 · 不计分，也不影响排名</span>
+                )}
+              </div>
+            )}
           </div>
           <div className="flex flex-wrap justify-center gap-1.5">
             {c.domains.map((d) => {
@@ -144,6 +198,21 @@ export default function DailyPage() {
           </div>
         )}
 
+        {/* 老师 NPC：记住你的薄弱域，给出今天该练什么 */}
+        {c.npc && c.npc.commentary && (
+          <div className="panel space-y-2 p-4">
+            <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-dim">
+              <MessageCircle size={13} className="text-accent" aria-hidden />
+              老师 NPC
+            </div>
+            <div className="text-[15px] font-semibold text-fg">{c.npc.commentary}</div>
+            {c.npc.rationale && <p className="text-xs text-dim">{c.npc.rationale}</p>}
+            {c.npc.degraded && (
+              <p className="text-xs text-dim">（{degradedLabel(c.npc.degradedReason)}）</p>
+            )}
+          </div>
+        )}
+
         {/* 通识段位 */}
         {rank && (
           <div className="panel space-y-2 p-4">
@@ -182,7 +251,14 @@ export default function DailyPage() {
                 <span className="text-muted">
                   {DOMAINS.find((d) => d.id === r.domain)?.name} · {r.topic}
                 </span>
-                <span className="tabular ml-auto text-muted">{r.points} 分</span>
+                {r.practice && (
+                  <span className="rounded-pill bg-surface-2 px-1.5 py-0.5 text-[11px] text-dim">
+                    加练 · 不计分
+                  </span>
+                )}
+                <span className="tabular ml-auto text-muted">
+                  {r.practice ? "不计分" : `${r.points} 分`}
+                </span>
               </div>
               <p className="mt-1.5 text-[15px] leading-[1.65] text-fg/75">{r.explanation}</p>
             </div>
@@ -209,7 +285,7 @@ export default function DailyPage() {
             domains={c.domains}
             score={c.score}
             correct={correctCount}
-            total={c.questions.length}
+            total={publicTotal}
             stars={c.stars}
             maxCombo={c.maxCombo}
             streak={streak}
@@ -221,19 +297,43 @@ export default function DailyPage() {
 
   // ---- 答题视图 ----
   const q = c.questions[c.index];
+  // 4+1 分轨：第 5 题固定在第 5 位，标记为个人加练（不参与计分与排序）。
+  const isPracticeQuestion = c.index === PUBLIC_DAILY_COUNT;
   if (!q) return null;
 
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between text-sm">
         <span className="text-muted">
-          第 {c.index + 1} / {c.questions.length} 题
-          <span className="ml-2 rounded-pill bg-surface-2 px-2 py-0.5 text-[11px]">
-            {dailyModeLabel(c.mode)}
-          </span>
+          {isPracticeQuestion ? (
+            <>
+              加练题
+              <span className="ml-1 text-dim">
+                （第 {c.index + 1} / {c.questions.length} 题）
+              </span>
+            </>
+          ) : (
+            <>
+              第 {c.index + 1} / {c.questions.length} 题
+              <span className="ml-2 rounded-pill bg-surface-2 px-2 py-0.5 text-[11px]">
+                {dailyModeLabel(c.mode)}
+              </span>
+            </>
+          )}
         </span>
         <span className="tabular font-semibold text-accent">{c.score} 分</span>
       </div>
+
+      {isPracticeQuestion && (
+        <div className="panel space-y-1 p-4">
+          <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-dim">
+            <Sparkles size={13} className="text-accent" aria-hidden />
+            你的加练题
+          </div>
+          {c.practiceReason && <p className="text-sm text-fg">{c.practiceReason}</p>}
+          <p className="text-xs text-dim">这道题不计分、不计排名，答对会写进熟练度。</p>
+        </div>
+      )}
 
       <KnowledgeChain slots={chainSlots} combo={c.combo} />
 
