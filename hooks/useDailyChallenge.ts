@@ -25,7 +25,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { DailySession, DomainId, Question } from "@/types";
 import { DOMAINS } from "@/content/domains";
 import { dayKey } from "@/lib/engine/date";
-import { buildDailySet } from "@/lib/engine/daily";
+import { buildDailySet, dailySeed } from "@/lib/engine/daily";
 import { isCorrect } from "@/lib/engine/answer";
 import {
   comboMultiplier,
@@ -50,13 +50,23 @@ import {
   bumpStreak,
   getDailySession,
   getGhost,
+  getHistory,
+  getMastery,
   getProfile,
+  getWrongEntries,
   pushHistory,
   recordAttempt,
   saveDailySession,
   saveGhost,
   saveProfile,
 } from "@/lib/storage";
+import {
+  buildCoachContext,
+  loadCoachEpisodes,
+  recordCoachEvent,
+  requestCoach,
+} from "@/lib/npc/client";
+import type { NpcDecision } from "@/lib/npc/types";
 
 export interface AnswerRecord {
   questionId: string;
@@ -105,6 +115,14 @@ export interface DailyChallengeState {
   ghost: GhostRecord | null;
   /** 结算后与影子的对比结论；未结算为 null。 */
   verdict: GhostVerdict | null;
+  /**
+   * 老师 NPC 的本局点评与决策依据。
+   *
+   * `null` 表示 NPC 还没给出点评（题库未加载完成时）。
+   * NPC **不改题集** —— 每日挑战必须全网同题；它只提供
+   * 「该练什么」的判断与领域权重（见 `lib/npc/`）。
+   */
+  npc: NpcDecision | null;
   start: () => void;
   toggleOption: (option: string) => void;
   /**
@@ -139,6 +157,7 @@ export function useDailyChallenge(): DailyChallengeState {
   const [mode, setMode] = useState<DailyMode>("native");
   const [ghost, setGhost] = useState<GhostRecord | null>(null);
   const [verdict, setVerdict] = useState<GhostVerdict | null>(null);
+  const [npc, setNpc] = useState<NpcDecision | null>(null);
 
   /** 本题开始时刻（本地，仅用于显示与速度分）。 */
   const startedAtRef = useRef<number>(0);
@@ -244,6 +263,45 @@ export function useDailyChallenge(): DailyChallengeState {
         };
         saveDailySession(session);
         setLoading(false);
+
+        // ---- 老师 NPC：给出"今天该练什么"的判断 ----
+        //
+        // ⚠️ NPC **不改题集** —— 每日挑战必须全网同题（可排行、可 PK）。
+        // 它只读既有数据（熟练度 / 错题本 / 历史）给出点评与领域权重。
+        // 失败一律降级到本地模板，**绝不阻塞主链路**。
+        void (async () => {
+          try {
+            const npcContext = buildCoachContext({
+              userId: profile.name,
+              domains: useDomains,
+              pool,
+              mastery: getMastery(),
+              wrongEntries: getWrongEntries().map((e) => ({
+                domain: e.domain,
+                wrongCount: e.wrongCount,
+              })),
+              history: getHistory().map((h) => ({
+                domains: h.domains,
+                correct: h.correct,
+                total: h.total,
+              })),
+              seed: dailySeed(date, useDomains),
+              now: Date.now(),
+            });
+            const result = await requestCoach({
+              userId: profile.name,
+              domains: useDomains,
+              facts: npcContext.facts,
+              episodes: npcContext.episodes,
+              seed: dailySeed(date, useDomains),
+              now: Date.now(),
+            });
+            if (!cancelled) setNpc(result.decision);
+          } catch (error) {
+            // NPC 是增强，不是主链路 —— 失败静默降级即可
+            console.warn("[daily] NPC 点评不可用：", error);
+          }
+        })();
       } catch (e) {
         console.error("[daily] 初始化失败：", e);
         if (!cancelled) {
@@ -342,6 +400,47 @@ export function useDailyChallenge(): DailyChallengeState {
         topic: current.topic,
         correct,
       });
+
+      // ---- 老师 NPC：记录本次作答（跨会话记忆的来源） ----
+      //
+      // 与 `recordAttempt` **并行**：既有引擎负责熟练度与错题本，
+      // NPC 只多存一份**单题事件流**（情景记忆的原料）。
+      // 失败静默 —— NPC 是增强，记忆写不进去不该影响答题。
+      try {
+        const wrongEntries = getWrongEntries();
+        const npcContext = buildCoachContext({
+          userId: getProfile().name,
+          domains: domains.length > 0 ? domains : [current.domain],
+          pool: {},
+          mastery: getMastery(),
+          wrongEntries: wrongEntries.map((e) => ({
+            domain: e.domain,
+            wrongCount: e.wrongCount,
+          })),
+          history: getHistory().map((h) => ({
+            domains: h.domains,
+            correct: h.correct,
+            total: h.total,
+          })),
+          seed: dailySeed(date, domains.length > 0 ? domains : [current.domain]),
+          now: Date.now(),
+        });
+        recordCoachEvent({
+          userId: getProfile().name,
+          facts: npcContext.facts,
+          event: {
+            questionId: current.id,
+            domain: current.domain,
+            topic: current.topic,
+            difficulty: current.difficulty,
+            correct,
+            streak: 0,
+            at: Date.now(),
+          },
+        });
+      } catch (error) {
+        console.warn("[daily] NPC 记忆写入失败：", error);
+      }
     },
     [current, picked, submitted, combo]
   );
@@ -460,6 +559,7 @@ export function useDailyChallenge(): DailyChallengeState {
     mode,
     ghost,
     verdict,
+    npc,
     start: reset,
     toggleOption,
     submit,

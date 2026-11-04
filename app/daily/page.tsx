@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { ArrowRight, Flame, Orbit, Star, Swords, Trophy } from "lucide-react";
+import { ArrowRight, Flame, MessageCircle, Orbit, Star, Swords, Trophy } from "lucide-react";
 
 import { useDailyChallenge } from "@/hooks/useDailyChallenge";
 import { QuestionCard } from "@/components/quiz/QuestionCard";
@@ -141,6 +141,24 @@ export default function DailyPage() {
               )}
             </div>
             <p className="text-xs text-dim">{ghostSourceLabel(c.verdict)}</p>
+          </div>
+        )}
+
+        {/* 老师 NPC：记住你的薄弱域，给出今天该练什么 */}
+        {c.npc && c.npc.commentary && (
+          <div className="panel space-y-2 p-4">
+            <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-dim">
+              <MessageCircle size={13} className="text-accent" aria-hidden />
+              老师 NPC
+            </div>
+            <div className="text-[15px] font-semibold text-fg">{c.npc.commentary}</div>
+            {c.npc.rationale && <p className="text-xs text-dim">{c.npc.rationale}</p>}
+            {c.npc.degraded && (
+              <p className="text-xs text-dim">
+                （未接入模型，由确定性基线给出
+                {c.npc.degradedReason ? `：${c.npc.degradedReason}` : ""}）
+              </p>
+            )}
           </div>
         )}
 
