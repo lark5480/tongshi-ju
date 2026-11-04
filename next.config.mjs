@@ -8,7 +8,7 @@ const nextConfig = {
    * |---|---|---|
    * | `npm run dev` | `.next-dev` | 开发服务器 |
    * | `npm run build` / `npm start` | `.next` | 生产构建 |
-   * | `npm run test:e2e` | `.next-e2e` | e2e 的 dev 服务器 |
+   * | `npm run test:e2e` | `.next-e2e` | e2e 服务器（本地 dev / CI 用构建产物） |
    * | `play-online.ps1` | `.next-online` | 联机通道 |
    *
    * ## 为什么必须分开
