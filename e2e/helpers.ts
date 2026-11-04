@@ -1,30 +1,77 @@
 import { expect, type Page } from "@playwright/test";
 
-/** 读当前停在第几题（拿不到就报错，让失败信息直指"没渲染出回合标签"）。 */
-export async function currentRound(page: Page): Promise<number> {
+/** 只读比分条上的题号与总题数；不判断相位（大厅/倒计时也渲染同一标签）。 */
+async function roundLabel(page: Page): Promise<{ round: number; total: number }> {
   const label = await page
     .getByText(/第 \d+ \/ \d+ 题/)
     .first()
     .innerText();
-  const n = Number(label.match(/第 (\d+) \/ (\d+) 题/)?.[1]);
-  if (!Number.isFinite(n)) throw new Error(`回合标签解析失败：${label}`);
-  return n;
+  const m = label.match(/第 (\d+) \/ (\d+) 题/);
+  if (!m) throw new Error(`回合标签解析失败：${label}`);
+  return { round: Number(m[1]), total: Number(m[2]) };
 }
 
 /**
- * 等回合**越过**某一题并重新可作答 —— duel 用的判据。
+ * 读当前停在第几题，且只在**答题阶段**读。
+ *
+ * 大厅/倒计时阶段也会渲染「第 N / M 题」，早读会把已被服务端截止时间
+ * 越过的回合当成第 1 题，后续按固定次数推进就会落到"等第 6 题"。
+ * 先等第一个选项出现，再读标签。
+ */
+export async function currentRound(page: Page, timeout = 40_000): Promise<number> {
+  await page.locator(".option-btn").first().waitFor({ state: "visible", timeout });
+  return (await roundLabel(page)).round;
+}
+
+/** 答题阶段读题号与总题数，供用例按服务端下发的总题数推进，而不是写死次数。 */
+export async function roundProgress(
+  page: Page,
+  timeout = 40_000
+): Promise<{ round: number; total: number }> {
+  await page.locator(".option-btn").first().waitFor({ state: "visible", timeout });
+  return roundLabel(page);
+}
+
+/** 对局是否已进入结算（结算面板只在 finished 相位渲染）。 */
+async function isFinished(page: Page): Promise<boolean> {
+  return page
+    .getByText("对局结束")
+    .isVisible()
+    .catch(() => false);
+}
+
+/**
+ * 等回合**越过**某一题，或对局直接结束 —— duel 用的判据。
  *
  * 对战房间不能断言"正好第 N 题"：回合推进由服务端定时器决定，
  * 答对时立即结算、无人答对时要等满截止时间，用例自己的耗时也在变 ——
  * 断言精确题号必然竞态（实测会一路冲到第 4 题）。
  * 真正要守卫的是**单调推进 + 提交态被清掉**：回合号变大，且选项重新可点。
+ *
+ * 末回合超时后不会再出现「第 6 题」，所以也必须把「结算」当作合法终止态，
+ * 否则最后会一直等到超时。
  */
-export async function waitAnswerableBeyond(page: Page, from: number): Promise<number> {
+export async function waitAdvanceOrFinish(
+  page: Page,
+  from: number,
+  timeout = 90_000
+): Promise<"advanced" | "finished"> {
   await expect
-    .poll(() => currentRound(page), { timeout: 90_000, message: `回合没越过第 ${from} 题` })
-    .toBeGreaterThan(from);
+    .poll(
+      async () => {
+        if (await isFinished(page)) return "finished";
+        // 结算/反馈阶段没有选项，此时读到的题号还是上一题，先跳过。
+        if ((await page.locator(".option-btn").count()) === 0) return "waiting";
+        const { round } = await roundLabel(page);
+        return round > from ? "advanced" : "waiting";
+      },
+      { timeout, message: `既没越过第 ${from} 题，也没进入结算` }
+    )
+    .not.toBe("waiting");
+
+  if (await isFinished(page)) return "finished";
   await expect(page.locator(".option-btn").first()).toBeEnabled({ timeout: 30_000 });
-  return currentRound(page);
+  return "advanced";
 }
 
 /**
