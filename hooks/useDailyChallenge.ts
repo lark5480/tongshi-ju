@@ -66,6 +66,7 @@ import {
   recordCoachEvent,
   requestCoach,
 } from "@/lib/npc/client";
+import { buildAnswerEvent } from "@/lib/npc";
 import type { NpcDecision } from "@/lib/npc/types";
 
 export interface AnswerRecord {
@@ -428,15 +429,17 @@ export function useDailyChallenge(): DailyChallengeState {
         recordCoachEvent({
           userId: getProfile().name,
           facts: npcContext.facts,
-          event: {
+          // 连击必须传**本局真实值**：错题本 streak 毕业阈值是 2，最大只有 1，
+          // 喂 0 会让 ruleImportance 的连击降权永远不生效。
+          event: buildAnswerEvent({
             questionId: current.id,
             domain: current.domain,
             topic: current.topic,
             difficulty: current.difficulty,
             correct,
-            streak: 0,
+            combo: nextComboValue,
             at: Date.now(),
-          },
+          }),
         });
       } catch (error) {
         console.warn("[daily] NPC 记忆写入失败：", error);

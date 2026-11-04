@@ -42,6 +42,39 @@ export function toEpisode(params: {
 }
 
 /**
+ * 由一次作答构造 NPC 事件。
+ *
+ * `combo` 必须是**本局真实连击**（`useDailyChallenge` 的 `combo` 状态，
+ * 由 `nextCombo` 在跨域答对时累加、答错归零），不得默认传 0。
+ *
+ * 为什么用本局连击、而不是错题本 `WrongEntry.streak`（`AnswerEvent.streak`
+ * 原注释写的出处）：错题本连续答对 2 次即毕业（`GRADUATE_STREAK = 2`），
+ * 那条 streak 的最大值是 1，`ruleImportance` 的 `floor(streak / 2)`
+ * 永远为 0 —— 连击降权不可能生效。本局连击是项目里唯一能超过 1 的真实连击来源。
+ */
+export function buildAnswerEvent(params: {
+  readonly questionId: string;
+  readonly domain: AnswerEvent["domain"];
+  readonly topic: string;
+  readonly difficulty: number;
+  readonly correct: boolean;
+  /** 本局连击（真实值，0 表示答错或尚未起连）。 */
+  readonly combo: number;
+  readonly at: number;
+}): AnswerEvent {
+  const streak = Number.isFinite(params.combo) ? Math.max(0, Math.floor(params.combo)) : 0;
+  return {
+    questionId: params.questionId,
+    domain: params.domain,
+    topic: params.topic,
+    difficulty: params.difficulty,
+    correct: params.correct,
+    streak,
+    at: params.at,
+  };
+}
+
+/**
  * 追加一条情景（**只增不改**，新条目在前）。
  *
  * 返回新数组 —— 不改原数组（纯函数）。泛型保留条目的扩展字段。

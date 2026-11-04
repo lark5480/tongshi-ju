@@ -12,11 +12,12 @@
 import type { DomainId } from "@/types";
 
 import type { NpcContext } from "../types";
+import { MASTERY_FULL_MARKS } from "./policy";
 
 /**
  * 找出最该练的领域（权重最高）。
  *
- * 权重口径与 `policy.ts` 一致：薄弱度 × 0.5 + 错题密度 × 0.3 + 近期性 × 0.2。
+ * 权重口径与 `policy.ts` 一致：薄弱度 × 0.5 + 错题密度 × 0.3。
  * 这里独立实现（不 import policy）是为了让降级路径**不依赖**策略模块，
  * 避免降级时因某个模块出错而连带失败。
  */
@@ -27,7 +28,8 @@ export function pickWeakestDomain(context: NpcContext): DomainId | undefined {
     const attempts = context.facts.attemptCounts[domain] ?? 0;
     const wrongs = context.facts.wrongCounts[domain] ?? 0;
     const mastery = context.facts.mastery[domain] ?? 0;
-    const weakness = 1 - clamp01(mastery);
+    // mastery 是**净答对数**，按满星刻度归一（口径同 policy.ts）。
+    const weakness = 1 - clamp01(mastery / MASTERY_FULL_MARKS);
     const errorRate = attempts > 0 ? clamp01(wrongs / attempts) : 0;
     const score = weakness * 0.5 + errorRate * 0.3;
     if (score > bestScore) {
@@ -64,9 +66,12 @@ export function buildCommentary(context: NpcContext): string {
     parts.push(`「${domain}」目前没错过`);
   }
 
-  if (mastery < 0.3) {
+  // 阈值按**满星刻度**判定（mastery 是净答对数，满星 = 10 次）。
+  // 用绝对阈值 0.3 / 0.7 判净答对数会把「净答对 1 次」说成"掌握得不错"。
+  const masteryRatio = clamp01(mastery / MASTERY_FULL_MARKS);
+  if (masteryRatio < 0.3) {
     parts.push("掌握度偏低，今天多练它");
-  } else if (mastery < 0.7) {
+  } else if (masteryRatio < 0.7) {
     parts.push("掌握度中等，巩固一下");
   } else {
     parts.push("掌握得不错，可以往后放");

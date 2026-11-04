@@ -21,6 +21,14 @@ import { retrieveEpisodes } from "./retrieve";
 import type { NpcContext, NpcDecision } from "../types";
 
 /**
+ * 「完全掌握」的净答对数刻度。
+ *
+ * 沿用既有引擎 `masteryStars` 的星级口径（`value / 2`，满星 5 星）
+ * → 满星 = **10 次净答对**。不另造数字，避免同一项目里出现两套"熟练"标准。
+ */
+export const MASTERY_FULL_MARKS = 10;
+
+/**
  * 领域权重（0-1，越大越该练）。
  *
  * 三个信号加权：
@@ -38,8 +46,20 @@ export function computeDomainWeights(context: NpcContext): Record<string, number
     const wrongs = context.facts.wrongCounts[domain] ?? 0;
     const mastery = context.facts.mastery[domain] ?? 0;
 
-    // 薄弱度：没答过的域（attempts=0）掌握度为 0 → 薄弱度 1。
-    const weakness = 1 - clamp01(mastery);
+    // 薄弱度：掌握度越低越该练。
+    //
+    // ⚠️ **mastery 的口径是「单知识点净答对数」，不是 0-1 概率**
+    // （既有引擎 `recordMastery`：答对 +1、答错 −1、下界 0；
+    //   `masteryStars` 用 `value / 2` → 2 次答对 = 1 星，满星 10 次）。
+    //
+    // 直接 `1 - clamp01(mastery)` 会把「净答对 1 次」当成「完全掌握」
+    // （clamp01(1)=1 → 薄弱度 0）—— 实测会让 NPC **反向推荐**：
+    // 玩家刚学的域被跳过、从未碰过的域被推荐。
+    //
+    // 归一口径沿用既有引擎的星级刻度：**满分 = 10 次净答对**，
+    // 即与 `masteryStars` 的满星线一致，不另造数字。
+    const masteryRatio = clamp01(mastery / MASTERY_FULL_MARKS);
+    const weakness = 1 - masteryRatio;
     // 错题密度：没答过的域不参与（避免"全新域"被当成错题密度 0 而降权）。
     const errorRate = attempts > 0 ? clamp01(wrongs / attempts) : 0;
     // 近期性：最近答错且时间越近 → 越高。用指数衰减按天计。
@@ -82,9 +102,12 @@ export function orderQuestions(params: {
     // 排序键**降序**（分数大的排前面）→ 错题的权重必须**更大**。
     // 错题权重 2.0 > 未答错题的 1.0，保证「答错过的题优先复习」。
     const wrongBoost = wrongIds.has(q.id) ? 2 : 0;
+    // mastery 是**净答对数**，按满星刻度归一后再取"不熟练度"
+    // （口径与 `computeDomainWeights` 一致，见 MASTERY_FULL_MARKS）。
     const mastery = topicMastery[q.topic] ?? 0;
+    const unfamiliarity = 1 - clamp01(mastery / MASTERY_FULL_MARKS);
     const tie = rng() + index * 1e-9; // 稳定且不改变主序
-    return { id: q.id, key: wrongBoost + (1 - clamp01(mastery)) + tie };
+    return { id: q.id, key: wrongBoost + unfamiliarity + tie };
   });
 
   scored.sort((a, b) => b.key - a.key || a.id.localeCompare(b.id));
@@ -144,7 +167,9 @@ function buildRationale(
   const mastery = context.facts.mastery[focusDomain] ?? 0;
   const parts = [
     `聚焦 ${focusDomain}（权重 ${(weights[focusDomain] ?? 0).toFixed(2)}）`,
-    `掌握度 ${(mastery * 100).toFixed(0)}%`,
+    // mastery 是**净答对数**，不是百分比 —— 直接 ×100 会得到「净答对 1 次 = 100%」。
+    // 展示为"熟练度 N/10"（满星刻度，见 MASTERY_FULL_MARKS）。
+    `熟练度 ${mastery.toFixed(0)}/${MASTERY_FULL_MARKS}`,
     `答 ${attempts} 错 ${wrongs}`,
     `领域顺序 ${domainOrder.join(" > ")}`,
   ];

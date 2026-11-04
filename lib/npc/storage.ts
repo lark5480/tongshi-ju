@@ -90,18 +90,39 @@ export function buildNpcContext(params: {
     wrongCounts[entry.domain] = (wrongCounts[entry.domain] ?? 0) + entry.wrongCount;
   }
 
-  // 历史 → 累计答题次数（每局 total 次）
-  for (const h of params.history) {
-    for (const domain of h.domains) {
-      attemptCounts[domain] = (attemptCounts[domain] ?? 0) + h.total;
-    }
-  }
-
-  // 情景层 → 累计答题次数（更精确：单题粒度）+ 最近答题时刻
+  // 情景层 → 累计答题次数（单题粒度）+ 最近答题时刻
+  //
+  // **情景层是 attemptCounts 的唯一精确来源**：一条对应一次作答、按用户分区，
+  // 能直接落到具体领域。
   for (const ep of params.episodes) {
     attemptCounts[ep.domain] = (attemptCounts[ep.domain] ?? 0) + 1;
     const prev = lastSeenAt[ep.domain] ?? 0;
     if (ep.at > prev) lastSeenAt[ep.domain] = ep.at;
+  }
+
+  // 历史 → 只做**下限补位**，不再与情景层相加。
+  //
+  // 为什么不能像以前那样把 `h.total` 加到该局的每个域上、也不能与情景层求和：
+  // 1) history 是**每局汇总**（只有 domains / total），无法拆分到具体域 ——
+  //    把整局题量摊给每个域会凭空放大该域的答题数；
+  // 2) history 与情景层覆盖的是**同一批近期作答**（每日挑战每题进情景层，
+  //    结算时同一局又进 history），相加 = 同一次作答被计两次。
+  //
+  // 口径：情景层里出现过的域一律以情景层为准；没有情景记录的域
+  // （如只在 duel 里答过、或情景层被清空）用"涉及该域的历史场次数"作为**下限**，
+  // 只保证 `isNewDomain` 不误判成"从未碰过"，且 errorRate 的分母不为 0。
+  const episodeDomains = new Set<string>();
+  for (const ep of params.episodes) episodeDomains.add(ep.domain);
+
+  const historySessions: Record<string, number> = {};
+  for (const h of params.history) {
+    for (const domain of h.domains) {
+      if (episodeDomains.has(domain)) continue;
+      historySessions[domain] = (historySessions[domain] ?? 0) + 1;
+    }
+  }
+  for (const [domain, sessions] of Object.entries(historySessions)) {
+    attemptCounts[domain] = Math.max(attemptCounts[domain] ?? 0, sessions);
   }
 
   // 历史里的 correct 只用于估算，不覆盖错题本

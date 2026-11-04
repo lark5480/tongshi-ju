@@ -15,7 +15,7 @@
 
 export { computeImportance, ruleImportance, normalizeImportance } from "./importance";
 export { buildFacts, updateFacts } from "./facts";
-export { toEpisode, appendEpisode, touchEpisode } from "./episodes";
+export { toEpisode, buildAnswerEvent, appendEpisode, touchEpisode } from "./episodes";
 export { retrieveEpisodes, DEFAULT_TOP_K, MIN_RELEVANCE } from "./retrieve";
 export { computeDomainWeights, orderQuestions, decideNpc } from "./policy";
 export { buildCommentary, pickWeakestDomain } from "./commentary";

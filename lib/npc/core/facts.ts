@@ -37,15 +37,30 @@ export interface BuildFactsParams {
  * 因为 NPC 的决策粒度是领域（选域权重是领域级的）。
  */
 export function buildFacts(params: BuildFactsParams): NpcFacts {
-  const mastery: Record<string, number> = {};
+  // 按域先分组、再求均值 —— 顺序无关，同输入必得同输出（纯函数契约）。
+  //
+  // 口径：**同域多个知识点取算术平均**，既不是取最大、也不是"后写覆盖"。
+  // 取最大的问题：碰巧会一个冷门知识点就会让整域看起来已掌握；
+  // 平均则要求该域的知识点整体均衡。之前逐条累加时用 `countTopicsFor` 数条目，
+  // 但累加对象是**域名级**的（键已变成域名），计数恒 ≤1，退化成最后一个 topic 覆盖。
+  //
+  // 源值口径：既有引擎的 `mastery` 是**单知识点净答对数**
+  // （`recordMastery` 每次答对 +1、答错 −1，下界 0），不是 0-1 概率。
+  // 领域级的 0-1 化由下游 `policy.ts` 的 `clamp01` 完成；本层不做二次归一，
+  // 以免丢掉"该域累计答对过多少次"这一信息。
+  const groups = new Map<string, number[]>();
   for (const [key, value] of Object.entries(params.mastery ?? {})) {
     const domain = key.split("|")[0];
-    if (!domain) continue;
-    const prev = mastery[domain] ?? 0;
-    // 同一领域多个知识点 → 取**平均**（不是最大）：一个领域里知识点越均衡，
-    // 说明该领域整体越熟；取最大值会让"碰巧会一个冷门知识点"看起来很熟。
-    const count = countTopicsFor(mastery, domain);
-    mastery[domain] = count > 1 ? (prev + value) / count : value;
+    if (!domain || !Number.isFinite(value)) continue;
+    const list = groups.get(domain);
+    if (list) list.push(value);
+    else groups.set(domain, [value]);
+  }
+
+  const mastery: Record<string, number> = {};
+  for (const [domain, values] of groups) {
+    const sum = values.reduce((acc, v) => acc + v, 0);
+    mastery[domain] = sum / values.length;
   }
 
   return {
@@ -85,17 +100,6 @@ export function updateFacts(facts: NpcFacts, event: AnswerEvent, isNewDomain: bo
     lastSeenAt: { ...facts.lastSeenAt, [domain]: event.at },
     touchedDomains: isNewDomain ? facts.touchedDomains + 1 : facts.touchedDomains,
   };
-}
-
-/**
- * 某领域已掌握的知识点数（用于平均值聚合）。
- */
-function countTopicsFor(mastery: Readonly<Record<string, number>>, domain: string): number {
-  let n = 0;
-  for (const key of Object.keys(mastery)) {
-    if (key.split("|")[0] === domain) n += 1;
-  }
-  return n;
 }
 
 /**

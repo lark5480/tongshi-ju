@@ -21,7 +21,13 @@ export type {
 
 export { narrate, type NpcModel } from "./narrate";
 export { buildFacts, updateFacts, isNewDomain } from "./core/facts";
-export { appendEpisode, appendEpisodeCapped, toEpisode, touchEpisode } from "./core/episodes";
+export {
+  appendEpisode,
+  appendEpisodeCapped,
+  buildAnswerEvent,
+  toEpisode,
+  touchEpisode,
+} from "./core/episodes";
 export { retrieveEpisodes } from "./core/retrieve";
 export { computeDomainWeights, decideNpc, orderQuestions } from "./core/policy";
 export { buildCommentary, pickWeakestDomain } from "./core/commentary";

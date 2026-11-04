@@ -77,10 +77,26 @@ episodes/    情景记忆（记忆流）—— 只追加，按需检索
 
 | NPC 事实 | 既有来源 |
 | --- | --- |
-| `mastery` | `getMastery()`（`domain\|topic` → 熟练度） |
+| `mastery` | `getMastery()`（`domain\|topic` → 熟练度），同域多知识点取**算术平均** |
 | `wrongCounts` | `getWrongEntries()` 的 `wrongCount` 求和 |
-| `attemptCounts` | `getHistory()` 的 `total` 求和 + NPC 情景层计数 |
+| `attemptCounts` | **NPC 情景层**（单题粒度，唯一精确来源）；history 仅在情景层无该域记录时按"涉及该域的场次数"做**下限补位** |
 | `lastSeenAt` | NPC 情景层的最近 `at` |
+
+> **口径说明**：`mastery` 的源值是既有引擎的**单知识点净答对数**（`recordMastery`
+> 每次 +1 / −1，下界 0），不是 0-1 概率；领域级 0-1 化由 `policy.ts` 的 `clamp01` 完成，
+> `buildFacts` 不做二次归一。
+>
+> **归一刻度**：0-1 化按**满星刻度**（`MASTERY_FULL_MARKS = 10`，
+> 沿用既有引擎 `masteryStars` 的 `value / 2` → 满星 5 星 = 10 次净答对）。
+>
+> ⚠️ **不能直接 `1 - clamp01(mastery)`** —— 那会把「净答对 1 次」当成"完全掌握"
+> （`clamp01(1) = 1` → 薄弱度 0 → 该域权重掉到 0.167 ≈ "几乎不用练"）。
+> 实测踩到过这条，已修正为 `1 - clamp01(mastery / MASTERY_FULL_MARKS)`。
+> 同一口径贯穿 `policy.ts`（权重、领域内选题）与 `commentary.ts`（点评分档）。
+>
+> **不重复计入**：history 是**每局汇总**（无法拆到具体域），且与情景层覆盖同一批近期作答 ——
+> 每日挑战每题进情景层、结算时同一局又进 history。两者相加会让同一次作答被计两次，
+> 故 history 不参与叠加，只保底证明"该域曾经碰过"。
 
 > **首次答题的域从掌握度 0.5 起算**，而不是 0 ——
 > 否则首次答错 `0 − 0.15` 被钳到 0，与"完全没碰过"无法区分，
@@ -124,9 +140,13 @@ score = recency + importance + relevance        （三项等权）
 
 ```
 weights[domain] = weakness×0.5 + errorRate×0.3 + recency×0.2     （归一到 [0,1]）
+  weakness = 1 - clamp01(mastery / MASTERY_FULL_MARKS)   ← mastery 是净答对数，满星刻度 10
 domainOrder     = 按权重降序（同权重用种子稳定排序）
 questionOrder   = 领域内：错题优先 → 低掌握度知识点优先 → 同分用种子稳定排序
 ```
+
+> **权重语义**：**越高 = 越该练**（越薄弱）。全新域薄弱度满格（1.0）——
+> 这是设计意图（`buildCommentary`："新领域的记忆最值钱"），不是 bug。
 
 ### ⚠️ NPC 不改题集（红线 5）
 
