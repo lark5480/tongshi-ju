@@ -67,7 +67,8 @@ import {
   requestCoach,
 } from "@/lib/npc/client";
 import { buildAnswerEvent } from "@/lib/npc";
-import type { NpcDecision } from "@/lib/npc/types";
+import type { NpcContext, NpcDecision } from "@/lib/npc/types";
+import { rankDomains } from "@/lib/npc/core/policy";
 
 export interface AnswerRecord {
   questionId: string;
@@ -117,11 +118,11 @@ export interface DailyChallengeState {
   /** 结算后与影子的对比结论；未结算为 null。 */
   verdict: GhostVerdict | null;
   /**
-   * 老师 NPC 的本局点评与决策依据。
+   * 老师 NPC 的决策结果（含点评、领域顺序与权重）。
    *
-   * `null` 表示 NPC 还没给出点评（题库未加载完成时）。
-   * NPC **不改题集** —— 每日挑战必须全网同题；它只提供
-   * 「该练什么」的判断与领域权重（见 `lib/npc/`）。
+   * `null` 表示 NPC 还没给出点评（题库未加载完成 / 无本地事实）。
+   * NPC **不改题集**：每日挑战必须全网同题；它只把**当日题目按弱域优先**重排，
+   * 并给出「该练什么」的点评（见 `lib/npc/`）。
    */
   npc: NpcDecision | null;
   start: () => void;
@@ -241,12 +242,49 @@ export function useDailyChallenge(): DailyChallengeState {
 
         // 抽题并锁定
         const pool = await loadQuestionPool(useDomains);
+
+        // ---- 老师 NPC：先算领域优先级，再抽题 ----
+        //
+        // NPC 是**难度调节器**：它读本地事实（熟练度 / 错题本 / 历史 / 情景层），
+        // 决定当日题目的**先后**（弱域先考）。题集本身仍由
+        // `f(日期, 领域集合)` 决定 —— 同日期同领域集合全网仍是同一份题
+        // （AGENTS.md §2.1），NPC 不参与「选题」。
+        //
+        // 首次使用（没有任何答题事实）或构造失败 → 不传 domainOrder，
+        // 完全走既有轮转，行为与接线前逐题一致。
+        let npcContext: NpcContext | null = null;
+        try {
+          npcContext = buildCoachContext({
+            userId: profile.name,
+            domains: useDomains,
+            pool,
+            mastery: getMastery(),
+            wrongEntries: getWrongEntries().map((e) => ({
+              domain: e.domain,
+              wrongCount: e.wrongCount,
+            })),
+            history: getHistory().map((h) => ({
+              domains: h.domains,
+              correct: h.correct,
+              total: h.total,
+            })),
+            seed: dailySeed(date, useDomains),
+            now: Date.now(),
+          });
+        } catch (error) {
+          console.warn("[daily] NPC 上下文不可用，回落默认轮转：", error);
+        }
+
+        const npcDomainOrder: DomainId[] | undefined =
+          npcContext && npcContext.facts.touchedDomains > 0 ? rankDomains(npcContext) : undefined;
+
         const picks = buildDailySet({
           dateKey: date,
           domains: useDomains,
           pool,
           // 同一领域集合下整池轮转，避免“2 天撞同一题”
           schedule: "cycle",
+          ...(npcDomainOrder ? { domainOrder: npcDomainOrder } : {}),
         });
         if (picks.length === 0) {
           setError("所选领域的题库还在准备中，请稍后再试或换个领域");
@@ -265,37 +303,21 @@ export function useDailyChallenge(): DailyChallengeState {
         saveDailySession(session);
         setLoading(false);
 
-        // ---- 老师 NPC：给出"今天该练什么"的判断 ----
+        // ---- 老师 NPC：拿到点评（模型不可用时由服务端降级为模板）----
         //
-        // ⚠️ NPC **不改题集** —— 每日挑战必须全网同题（可排行、可 PK）。
-        // 它只读既有数据（熟练度 / 错题本 / 历史）给出点评与领域权重。
-        // 失败一律降级到本地模板，**绝不阻塞主链路**。
+        // 决策（domainOrder / weights）已经在抽题前用同一份上下文算好；
+        // 这里只补「说什么」。传同一个 `now`，保证服务端算出的顺序与本地一致。
+        const coachContext = npcContext;
         void (async () => {
+          if (!coachContext) return;
           try {
-            const npcContext = buildCoachContext({
-              userId: profile.name,
-              domains: useDomains,
-              pool,
-              mastery: getMastery(),
-              wrongEntries: getWrongEntries().map((e) => ({
-                domain: e.domain,
-                wrongCount: e.wrongCount,
-              })),
-              history: getHistory().map((h) => ({
-                domains: h.domains,
-                correct: h.correct,
-                total: h.total,
-              })),
-              seed: dailySeed(date, useDomains),
-              now: Date.now(),
-            });
             const result = await requestCoach({
               userId: profile.name,
               domains: useDomains,
-              facts: npcContext.facts,
-              episodes: npcContext.episodes,
+              facts: coachContext.facts,
+              episodes: coachContext.episodes,
               seed: dailySeed(date, useDomains),
-              now: Date.now(),
+              now: coachContext.now,
             });
             if (!cancelled) setNpc(result.decision);
           } catch (error) {

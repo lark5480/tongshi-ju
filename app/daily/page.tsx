@@ -18,6 +18,18 @@ import { dailyModeLabel } from "@/lib/engine/blindbox";
 import { DIFFICULTY_LIMIT_MS as LIMIT_MS, maxScore } from "@/lib/engine/scoring";
 import type { RankSnapshot } from "@/lib/engine/rank";
 
+/**
+ * 降级原因 → 玩家可读文案。
+ *
+ * 「未配置模型」是主动选择，「调用失败 / 超时」是故障 —— 两者不能混成一句
+ * 「未接入模型：调用超时」，那会让玩家以为项目不支持模型。
+ */
+function degradedLabel(reason?: string): string {
+  if (!reason) return "未配置模型，由确定性模板给出点评";
+  if (reason.includes("未配置")) return "未配置模型，由确定性模板给出点评";
+  return `模型调用失败，已降级为确定性模板：${reason}`;
+}
+
 export default function DailyPage() {
   const c = useDailyChallenge();
   const [streak, setStreak] = useState(0);
@@ -154,10 +166,7 @@ export default function DailyPage() {
             <div className="text-[15px] font-semibold text-fg">{c.npc.commentary}</div>
             {c.npc.rationale && <p className="text-xs text-dim">{c.npc.rationale}</p>}
             {c.npc.degraded && (
-              <p className="text-xs text-dim">
-                （未接入模型，由确定性基线给出
-                {c.npc.degradedReason ? `：${c.npc.degradedReason}` : ""}）
-              </p>
+              <p className="text-xs text-dim">（{degradedLabel(c.npc.degradedReason)}）</p>
             )}
           </div>
         )}

@@ -12,9 +12,10 @@
  * （沿用 `lib/ai/provider.ts` 的约定 —— 本模块只会被服务端路由 import）。
  */
 
+import { domainName } from "@/content/domains";
 import { buildCommentary } from "./core/commentary";
 import type { NpcContext, NpcDecision } from "./types";
-import { decideNpc } from "./core/policy";
+import { decideNpc, MASTERY_FULL_MARKS } from "./core/policy";
 
 /** NPC 的 LLM 依赖（与 `lib/ai/provider.ts` 的 `AiProvider` 同构，独立实现避免耦合）。 */
 export interface NpcModel {
@@ -91,14 +92,16 @@ function buildPrompt(context: NpcContext): string {
   const domainLines = context.domains.map((d) => {
     const attempts = context.facts.attemptCounts[d] ?? 0;
     const wrongs = context.facts.wrongCounts[d] ?? 0;
-    const mastery = Math.round((context.facts.mastery[d] ?? 0) * 100);
-    return `- ${d}：掌握度 ${mastery}%，答题 ${attempts} 次，错 ${wrongs} 次`;
+    const mastery = Math.round(context.facts.mastery[d] ?? 0);
+    // 玩家可见口径：中文域名 + 「熟练度 N/10」（与 `policy.ts` 的 rationale 一致）。
+    return `- ${domainName(d)}：熟练度 ${mastery}/${MASTERY_FULL_MARKS}，答题 ${attempts} 次，错 ${wrongs} 次`;
   });
 
   const weak = context.domains
     .slice()
     .sort((a, b) => (context.facts.wrongCounts[b] ?? 0) - (context.facts.wrongCounts[a] ?? 0))
-    .slice(0, 2);
+    .slice(0, 2)
+    .map(domainName);
 
   return [
     "你是一个知识闯关游戏里的「老师 NPC」。",

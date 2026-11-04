@@ -63,8 +63,17 @@ export function buildFacts(params: BuildFactsParams): NpcFacts {
     mastery[domain] = sum / values.length;
   }
 
+  // 知识点级原值：直接保留 `domain|topic` 键，供 `policy.orderQuestions` 区分同域不同 topic。
+  // 域级均值只是**聚合视图**，不能反推知识点差异（例如同域一个 topic 熟练、另一个生疏）。
+  const topicMastery: Record<string, number> = {};
+  for (const [key, value] of Object.entries(params.mastery ?? {})) {
+    if (!Number.isFinite(value)) continue;
+    topicMastery[key] = value;
+  }
+
   return {
     mastery,
+    topicMastery,
     wrongCounts: { ...(params.wrongCounts ?? {}) },
     attemptCounts: { ...(params.attemptCounts ?? {}) },
     lastSeenAt: { ...(params.lastSeenAt ?? {}) },
@@ -92,9 +101,20 @@ export function updateFacts(facts: NpcFacts, event: AnswerEvent, isNewDomain: bo
   const delta = event.correct ? 0.1 : -0.15;
   const mastery = Math.min(1, Math.max(0, prevMastery + delta));
 
+  // 知识点级增量：与既有引擎 `recordMastery` 同一口径（答对 +1、答错 −1、下界 0），
+  // 不参与上面的 0-1 域级估算 —— 两者是**不同标度**，各自服务不同用途：
+  // 域级供选域权重，知识点级供域内选题顺序。
+  const topicKey = `${domain}|${event.topic}`;
+  const prevTopic = facts.topicMastery?.[topicKey] ?? 0;
+  const topicMastery = {
+    ...(facts.topicMastery ?? {}),
+    [topicKey]: Math.max(0, prevTopic + (event.correct ? 1 : -1)),
+  };
+
   return {
     ...facts,
     mastery: { ...facts.mastery, [domain]: mastery },
+    topicMastery,
     attemptCounts: { ...facts.attemptCounts, [domain]: attempts },
     wrongCounts: { ...facts.wrongCounts, [domain]: wrongs },
     lastSeenAt: { ...facts.lastSeenAt, [domain]: event.at },

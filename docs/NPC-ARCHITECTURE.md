@@ -53,7 +53,7 @@ types ← core ← narrator ← client / route
 | ② | 记忆检索评分公式 `α_rec·recency + α_imp·importance + α_rel·relevance` | `core/retrieve.ts` | 权重变更须在裁决清单追加条目 |
 | ③ | 重要度标度 **[1,10]**，两个来源同标度 | `core/importance.ts` | 改标度 = 改行为，须追加裁决 |
 | ④ | 领域权重口径 `weakness×0.5 + errorRate×0.3 + recency×0.2` | `core/policy.ts` | 同上 |
-| ⑤ | NPC **不改领域集合、不改题集** | `core/policy.ts` | 红线，改动即破坏"全网同题" |
+| ⑤ | NPC **不改领域集合、不改题集**；只重排当日题目**先后** | `core/policy.ts` + `lib/engine/daily.ts` | 红线：改题集即破坏"全网同题" |
 | ⑥ | 降级契约：模型不可用/超时/失败 → 模板点评 + `degraded: true` + 原因 | `narrator.ts` | 不可静默降级 |
 
 ---
@@ -71,13 +71,14 @@ episodes/    情景记忆（记忆流）—— 只追加，按需检索
 
 **结构化事实层是必需的，不是可选项**（依据：工程综述 —— 语义检索会漏掉
 "每次都相关"的事实，如玩家的名字、做过的承诺）。通识局里对应的是：
-掌握度 / 累计答错 / 累计答题 / 最近答题时刻。
+熟练度 / 累计答错 / 累计答题 / 最近答题时刻。
 
 ### 3.1 事实层来源（**只读**既有引擎，不复制）
 
 | NPC 事实 | 既有来源 |
 | --- | --- |
 | `mastery` | `getMastery()`（`domain\|topic` → 熟练度），同域多知识点取**算术平均** |
+| `topicMastery` | 同一份 `getMastery()` 的**单知识点原值**（键 `domain\|topic`）；域内选题顺序优先用它，缺失时才回落域均值 |
 | `wrongCounts` | `getWrongEntries()` 的 `wrongCount` 求和 |
 | `attemptCounts` | **NPC 情景层**（单题粒度，唯一精确来源）；history 仅在情景层无该域记录时按"涉及该域的场次数"做**下限补位** |
 | `lastSeenAt` | NPC 情景层的最近 `at` |
@@ -98,7 +99,7 @@ episodes/    情景记忆（记忆流）—— 只追加，按需检索
 > 每日挑战每题进情景层、结算时同一局又进 history。两者相加会让同一次作答被计两次，
 > 故 history 不参与叠加，只保底证明"该域曾经碰过"。
 
-> **首次答题的域从掌握度 0.5 起算**，而不是 0 ——
+> **首次答题的域从熟练度 0.5 起算**，而不是 0 ——
 > 否则首次答错 `0 − 0.15` 被钳到 0，与"完全没碰过"无法区分，
 > 最该记住的信号会被抹平。
 
@@ -142,23 +143,31 @@ score = recency + importance + relevance        （三项等权）
 weights[domain] = weakness×0.5 + errorRate×0.3 + recency×0.2     （归一到 [0,1]）
   weakness = 1 - clamp01(mastery / MASTERY_FULL_MARKS)   ← mastery 是净答对数，满星刻度 10
 domainOrder     = 按权重降序（同权重用种子稳定排序）
-questionOrder   = 领域内：错题优先 → 低掌握度知识点优先 → 同分用种子稳定排序
+questionOrder   = 领域内：错题优先 → 低熟练度知识点优先 → 同分用种子稳定排序
 ```
 
 > **权重语义**：**越高 = 越该练**（越薄弱）。全新域薄弱度满格（1.0）——
 > 这是设计意图（`buildCommentary`："新领域的记忆最值钱"），不是 bug。
 
-### ⚠️ NPC 不改题集（红线 5）
+### ⚠️ NPC 不改题集，只重排当日先后（红线 5）
 
 每日挑战的题集必须**全网一致**（同日期 + 同领域集合 → 同一份题），
-否则红榜与同题 PK 失去意义。若 NPC 改领域集合 → 同一天不同玩家拿到不同题；
-若 NPC 换题 → 破坏"同一天不撞题"。
+否则红榜与同题 PK 失去意义。因此：
 
-因此 NPC 的作用点是**领域内**：
-- **领域权重** → 驱动点评（告诉玩家该练什么）与领域排序；
-- **选题顺序** → 在既有引擎产出的题集内给出优先级建议。
+- **不改领域集合**：集合仍由 `resolveDailyDomains` 产出；
+- **不改题集**：抽题仍由 `dailySeed(dateKey, domains)` 决定，NPC 不参与选题；
+- **只改先后**：`buildDailySet` 接受可选 `domainOrder`，把当日 5 题里
+  最该练的领域的题排到前面，彩蛋题仍固定末位。题集与每域题量都不变。
+
+**接线位置**（`hooks/useDailyChallenge.ts`）：抽题**之前**用本地事实算
+`rankDomains(context)`，把结果作为 `domainOrder` 传给 `buildDailySet`。
+首次使用（`touchedDomains === 0`）或构造上下文失败 → 不传该参数，
+**逐题回落**到既有轮转（有回归基线测试保证）。同一天内重复请求走已锁定的
+`DailySession`，不会因答题后熟练度变化而换题。
 
 **出题可复现靠 PRNG，不靠模型**（裁决 14）：模型只决定"说什么"。
+确定性模板路径（无模型 / 降级）在**同 seed + 同答题序列**下可复现；
+模型路径不保证逐字相同（受采样与模型版本影响）。
 
 ---
 

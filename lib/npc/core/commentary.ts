@@ -12,38 +12,25 @@
 import type { DomainId } from "@/types";
 
 import type { NpcContext } from "../types";
-import { MASTERY_FULL_MARKS } from "./policy";
+import { domainName } from "@/content/domains";
+import { MASTERY_FULL_MARKS, rankDomains } from "./policy";
 
 /**
- * 找出最该练的领域（权重最高）。
+ * 找出最该练的领域。
  *
- * 权重口径与 `policy.ts` 一致：薄弱度 × 0.5 + 错题密度 × 0.3。
- * 这里独立实现（不 import policy）是为了让降级路径**不依赖**策略模块，
- * 避免降级时因某个模块出错而连带失败。
+ * **唯一口径**：直接复用 `policy.ts` 的领域排序 `rankDomains`
+ * （权重 = 薄弱度 × 0.5 + 错题密度 × 0.3 + 最近性 × 0.2，含归一）。
+ * 本函数只取排序首位 —— 因此点评点名的域恒等于 `domainOrder[0]`，
+ * 不再维护第二套"0.5 + 0.3"的近似公式。
  */
 export function pickWeakestDomain(context: NpcContext): DomainId | undefined {
-  let best: DomainId | undefined;
-  let bestScore = -Infinity;
-  for (const domain of context.domains) {
-    const attempts = context.facts.attemptCounts[domain] ?? 0;
-    const wrongs = context.facts.wrongCounts[domain] ?? 0;
-    const mastery = context.facts.mastery[domain] ?? 0;
-    // mastery 是**净答对数**，按满星刻度归一（口径同 policy.ts）。
-    const weakness = 1 - clamp01(mastery / MASTERY_FULL_MARKS);
-    const errorRate = attempts > 0 ? clamp01(wrongs / attempts) : 0;
-    const score = weakness * 0.5 + errorRate * 0.3;
-    if (score > bestScore) {
-      bestScore = score;
-      best = domain;
-    }
-  }
-  return best;
+  return rankDomains(context)[0];
 }
 
 /**
  * 生成确定性点评（降级路径）。
  *
- * 文案随事实变化 —— 域不同、答错次数不同、掌握度不同 → 话不同。
+ * 文案随事实变化 —— 域不同、答错次数不同、熟练度不同 → 话不同。
  * 同状态 → 同话（可复现）。
  */
 export function buildCommentary(context: NpcContext): string {
@@ -53,28 +40,30 @@ export function buildCommentary(context: NpcContext): string {
   const attempts = context.facts.attemptCounts[domain] ?? 0;
   const wrongs = context.facts.wrongCounts[domain] ?? 0;
   const mastery = context.facts.mastery[domain] ?? 0;
+  // 玩家可见文案用中文域名（唯一来源：`content/domains` 的 `name`），内部仍用 id。
+  const label = domainName(domain);
 
   if (attempts === 0) {
-    return `「${domain}」你还没碰过。今天先从它开始 —— 新领域的记忆最值钱。`;
+    return `「${label}」你还没碰过。今天先从它开始 —— 新领域的记忆最值钱。`;
   }
 
   const parts: string[] = [];
 
   if (wrongs > 0) {
-    parts.push(`「${domain}」错过 ${wrongs} 次`);
+    parts.push(`「${label}」错过 ${wrongs} 次`);
   } else {
-    parts.push(`「${domain}」目前没错过`);
+    parts.push(`「${label}」目前没错过`);
   }
 
   // 阈值按**满星刻度**判定（mastery 是净答对数，满星 = 10 次）。
-  // 用绝对阈值 0.3 / 0.7 判净答对数会把「净答对 1 次」说成"掌握得不错"。
+  // 用绝对阈值 0.3 / 0.7 判净答对数会把「净答对 1 次」说成"熟练度不错"。
   const masteryRatio = clamp01(mastery / MASTERY_FULL_MARKS);
   if (masteryRatio < 0.3) {
-    parts.push("掌握度偏低，今天多练它");
+    parts.push("熟练度偏低，今天多练它");
   } else if (masteryRatio < 0.7) {
-    parts.push("掌握度中等，巩固一下");
+    parts.push("熟练度中等，巩固一下");
   } else {
-    parts.push("掌握得不错，可以往后放");
+    parts.push("熟练度不错，可以往后放");
   }
 
   return parts.join("，") + "。";

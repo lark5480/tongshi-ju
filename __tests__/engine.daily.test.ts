@@ -382,6 +382,94 @@ test("纯函数：不修改入参题池", () => {
   assert.equal(JSON.stringify(pool), before, "题池不应被修改");
 });
 
+test("NPC 未提供领域顺序时与接线前逐题一致（回归基线）", () => {
+  // 基线是接线前从 `buildDailySet` 实测导出的题号 —— 用来防止默认路径被悄悄改掉。
+  const pool = makePool(DOMS, 60);
+
+  const jan16 = buildDailySet({
+    dateKey: "2026-01-16",
+    domains: DOMS,
+    pool,
+    schedule: "cycle",
+  });
+  assert.deepEqual(
+    jan16.map((p) => p.question.id),
+    ["gaming-0030", "life-0006", "tech-0037", "gaming-0022", "life-0056"],
+    "无 domainOrder 时必须与改动前逐题一致"
+  );
+
+  const nov01 = buildDailySet({
+    dateKey: "2026-11-01",
+    domains: DOMS,
+    pool,
+    schedule: "cycle",
+  });
+  assert.deepEqual(
+    nov01.map((p) => p.question.id),
+    ["life-0048", "tech-0039", "gaming-0007", "life-0046", "tech-0038"],
+    "无 domainOrder 时必须与改动前逐题一致"
+  );
+});
+
+test("NPC 领域顺序：只重排当日先后，题集与配比不变（红线：全网同题）", () => {
+  const pool = makePool(DOMS, 60);
+  const base = buildDailySet({
+    dateKey: "2026-01-16",
+    domains: DOMS,
+    pool,
+    schedule: "cycle",
+  });
+  const ordered = buildDailySet({
+    dateKey: "2026-01-16",
+    domains: DOMS,
+    pool,
+    schedule: "cycle",
+    domainOrder: ["life", "tech", "gaming"],
+  });
+
+  // 题集必须完全相同：顺序变化不能让任何人拿到不同的题。
+  assert.deepEqual(
+    ordered
+      .map((p) => p.question.id)
+      .slice()
+      .sort(),
+    base
+      .map((p) => p.question.id)
+      .slice()
+      .sort(),
+    "NPC 不得改变当日题集"
+  );
+
+  // 配比不变：每个域出现的次数一致。
+  const count = (picks: typeof base, domain: DomainId) =>
+    picks.filter((p) => p.question.domain === domain).length;
+  for (const domain of DOMS) {
+    assert.equal(count(ordered, domain), count(base, domain), `${domain} 的题量不应变化`);
+  }
+
+  // 弱域排到最前，彩蛋题仍在末位。
+  assert.equal(ordered[0]?.question.domain, "life", "弱域题应排第一");
+  assert.equal(ordered[ordered.length - 1]?.isEgg, true, "彩蛋题固定末位");
+});
+
+test("NPC 领域顺序：同 seed + 同顺序 → 逐题可复现", () => {
+  const pool = makePool(DOMS, 60);
+  const args = {
+    dateKey: "2026-11-01",
+    domains: DOMS,
+    pool,
+    schedule: "cycle" as const,
+    domainOrder: ["tech", "life", "gaming"] as DomainId[],
+  };
+  const a = buildDailySet(args);
+  const b = buildDailySet(args);
+  assert.deepEqual(
+    a.map((p) => p.question.id),
+    b.map((p) => p.question.id)
+  );
+  assert.equal(a[0]?.question.domain, "tech");
+});
+
 test("dailySeed 稳定且随领域变化", () => {
   assert.equal(dailySeed("2026-10-20", DOMS), dailySeed("2026-10-20", DOMS));
   assert.notEqual(dailySeed("2026-10-20", DOMS), dailySeed("2026-10-20", ["gaming"]));

@@ -21,6 +21,7 @@ import {
   decideNpc,
   narrate,
   orderQuestions,
+  pickWeakestDomain,
   retrieveEpisodes,
   ruleImportance,
   toEpisode,
@@ -209,6 +210,48 @@ test("N1：领域排序把最该练的放首位", () => {
   assert.equal(decision.domainOrder[0], "tech");
 });
 
+test("N2：同域内按 topic 自己的熟练度排序（域均值会抹平差异）", () => {
+  // 两个 topic 同属 gaming：T1 从未答对（0），T2 已净答对 10 次（满星）。
+  // 域均值是 5 —— 旧实现把 5 赋给两个 topic，排序退化成随机平分。
+  const facts: NpcFacts = {
+    mastery: { gaming: 5 },
+    topicMastery: { "gaming|T1": 0, "gaming|T2": 10 },
+    wrongCounts: {},
+    attemptCounts: { gaming: 4 },
+    lastSeenAt: {},
+    touchedDomains: 1,
+  };
+  const context = ctx({
+    facts,
+    pool: {
+      gaming: [q("g1", "gaming", "T1"), q("g2", "gaming", "T2")],
+    } as NpcContext["pool"],
+    seed: 2,
+  });
+
+  const order = orderQuestions({ context, domain: "gaming" });
+  // 低熟练度的 T1 必须排前；旧实现（域均值 5/5）在 seed=2 下平分后先出 g2。
+  assert.equal(order[0], "g1", `应按 topic 熟练度选 g1，实际顺序：${order.join(",")}`);
+});
+
+test("事实层：buildFacts 保留 topic 级原值（不被域均值覆盖）", () => {
+  const facts = buildFacts({
+    mastery: { "gaming|T1": 0, "gaming|T2": 10 },
+    attemptCounts: { gaming: 4 },
+  });
+  assert.equal(facts.mastery["gaming"], 5, "域级仍是算术平均");
+  assert.equal(facts.topicMastery?.["gaming|T1"], 0, "topic 原值必须保留");
+  assert.equal(facts.topicMastery?.["gaming|T2"], 10, "topic 原值必须保留");
+});
+
+test("事实层：updateFacts 增量维护 topic 值（答对 +1、答错 −1、下界 0）", () => {
+  let facts = emptyFacts();
+  facts = updateFacts(facts, event({ correct: true, topic: "T1" }), true);
+  assert.equal(facts.topicMastery?.["gaming|T1"], 1);
+  facts = updateFacts(facts, event({ correct: false, topic: "T1" }), false);
+  assert.equal(facts.topicMastery?.["gaming|T1"], 0, "净答对数不应小于 0");
+});
+
 test("N2 影响玩法：选题顺序把错题排前面", () => {
   const episodes = [
     toEpisode({
@@ -295,7 +338,7 @@ test("降级点评：随事实变化（不同域 → 不同话）", () => {
   );
   const b = buildCommentary(ctx({ facts }));
   assert.notEqual(a, b, "不同状态应给出不同点评");
-  assert.ok(b.includes("tech"), "点评应点名最薄弱的域");
+  assert.ok(b.includes("科技"), "点评应点名最薄弱的域");
 });
 
 // ---------------------------------------------------------------- 数据口径回归
@@ -366,14 +409,60 @@ test("口径：领域熟练度按满星刻度归一（10 次净答对 = 完全�
   );
 });
 
-test("口径：降级点评按满星刻度判档，不把'净答对 1 次'说成掌握得不错", () => {
+test("口径：降级点评按满星刻度判档，不把'净答对 1 次'说成熟练度不错", () => {
   const facts: NpcFacts = {
     ...emptyFacts(),
     mastery: { gaming: 1 },
     attemptCounts: { gaming: 3 },
   };
   const text = buildCommentary(ctx({ facts, domains: ["gaming"] as NpcContext["domains"] }));
-  assert.ok(text.includes("掌握度偏低"), `净答对 1 次应判为偏低，实际：${text}`);
+  assert.ok(text.includes("熟练度偏低"), `净答对 1 次应判为偏低，实际：${text}`);
+  assert.ok(!text.includes("gaming"), `玩家可见文案应使用中文域名，实际：${text}`);
+});
+
+test("口径：点评域恒等于 domainOrder[0]，最近性可改变排序", () => {
+  const facts: NpcFacts = {
+    mastery: { gaming: 0, tech: 0 },
+    wrongCounts: { gaming: 0, tech: 0 },
+    attemptCounts: { gaming: 2, tech: 2 },
+    lastSeenAt: { gaming: NOW, tech: NOW - 30 * 86_400_000 },
+    touchedDomains: 2,
+  };
+  // tech 排在 domains 首位：旧的两项公式（无 recent）会因平分而选 tech。
+  const context = ctx({ facts, domains: ["tech", "gaming"] as NpcContext["domains"] });
+  const commentary = buildCommentary(context);
+  const decision = decideNpc({ context, commentary, degraded: true });
+
+  assert.equal(pickWeakestDomain(context), "gaming", `应选刚练过的 gaming，实际：${commentary}`);
+  assert.equal(
+    decision.domainOrder[0],
+    pickWeakestDomain(context),
+    "点评域必须等于 domainOrder[0]"
+  );
+  assert.ok(commentary.includes("游戏"), `点评应点名中文域名，实际：${commentary}`);
+});
+
+test("术语：点评文案不含英文域 id，也不含「掌握度」", () => {
+  const cases: NpcFacts[] = [
+    emptyFacts(),
+    {
+      ...emptyFacts(),
+      mastery: { gaming: 0 },
+      attemptCounts: { gaming: 3 },
+      wrongCounts: { gaming: 2 },
+      lastSeenAt: { gaming: NOW },
+    },
+    { ...emptyFacts(), mastery: { gaming: 8 }, attemptCounts: { gaming: 3 } },
+  ];
+  const ids =
+    /\b(gaming|anime|tech|coding|life|history|auto|mobile|film|science|literature|travel)\b/;
+
+  for (const facts of cases) {
+    const text = buildCommentary(ctx({ facts, domains: ["gaming"] as NpcContext["domains"] }));
+    assert.ok(!ids.test(text), `点评不应含英文域 id：${text}`);
+    assert.ok(!text.includes("掌握度"), `点评不应含旧术语：${text}`);
+    assert.ok(text.includes("游戏"), `点评应使用中文域名：${text}`);
+  }
 });
 
 test("事实层：同域多知识点取算术平均（不是后写覆盖），且顺序无关", () => {

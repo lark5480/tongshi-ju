@@ -42,8 +42,18 @@ export interface AnswerEvent {
  * 与 NPC 的立场），故事实层是**必需的补充**而非可选项。
  */
 export interface NpcFacts {
-  /** 每个领域的掌握度（0-1，1 = 完全掌握）。 */
+  /**
+   * 每个领域的熟练度：**单知识点净答对数按域取平均**（0 起，满星 = 10 次净答对，
+   * 与引擎 `masteryStars` 的满星线一致）。下游按 `MASTERY_FULL_MARKS` 归一为 0-1。
+   */
   readonly mastery: Readonly<Record<string, number>>;
+  /**
+   * 每个知识点的熟练度：键为 `domain|topic`，值同样是**净答对数**（与 `mastery` 同口径）。
+   *
+   * 可选：旧数据 / 未注入该字段时，下游回落到该域的均值（`policy.topicMasteryMap`）。
+   * 字段只随 `mastery` 一起增长，不改变既有域级契约。
+   */
+  readonly topicMastery?: Readonly<Record<string, number>>;
   /** 每个领域累计答错次数。 */
   readonly wrongCounts: Readonly<Record<string, number>>;
   /** 每个领域累计答题次数。 */

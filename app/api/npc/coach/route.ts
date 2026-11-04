@@ -33,6 +33,7 @@ const npcCoachSchema = z.object({
   domains: z.array(z.string().min(1).max(32)).min(1).max(12),
   facts: z.object({
     mastery: z.record(z.string(), z.number()),
+    topicMastery: z.record(z.string(), z.number()).optional(),
     wrongCounts: z.record(z.string(), z.number()),
     attemptCounts: z.record(z.string(), z.number()),
     lastSeenAt: z.record(z.string(), z.number()),

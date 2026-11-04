@@ -15,6 +15,7 @@
  */
 
 import type { DomainId, Question } from "@/types";
+import { domainName } from "@/content/domains";
 import { hashSeed, mulberry32 } from "@/lib/engine/prng";
 
 import { retrieveEpisodes } from "./retrieve";
@@ -36,7 +37,7 @@ export const MASTERY_FULL_MARKS = 10;
  * - **错题密度** `wrong / attempts` —— 错得多说明没掌握；
  * - **近期性** —— 最近答错的域优先（新鲜错误更值得补）。
  *
- * 三项**等权**后归一 —— 与检索评分的等权原则一致（理由见 retrieve.ts）。
+ * 三项按 **0.5 / 0.3 / 0.2** 加权后归一（薄弱度优先、错题密度次之、近期性兜底）。
  */
 export function computeDomainWeights(context: NpcContext): Record<string, number> {
   const raw: Record<string, number> = {};
@@ -104,7 +105,7 @@ export function orderQuestions(params: {
     const wrongBoost = wrongIds.has(q.id) ? 2 : 0;
     // mastery 是**净答对数**，按满星刻度归一后再取"不熟练度"
     // （口径与 `computeDomainWeights` 一致，见 MASTERY_FULL_MARKS）。
-    const mastery = topicMastery[q.topic] ?? 0;
+    const mastery = topicMastery[`${domain}|${q.topic}`] ?? 0;
     const unfamiliarity = 1 - clamp01(mastery / MASTERY_FULL_MARKS);
     const tie = rng() + index * 1e-9; // 稳定且不改变主序
     return { id: q.id, key: wrongBoost + unfamiliarity + tie };
@@ -129,11 +130,8 @@ export function decideNpc(params: {
   const { context } = params;
   const weights = computeDomainWeights(context);
 
-  // 领域排序：权重降序；同权重用种子稳定排序（保证可复现）。
-  const rng = mulberry32(hashSeed("npc-domains:" + context.seed));
-  const domainOrder = [...context.domains].sort(
-    (a, b) => (weights[b] ?? 0) - (weights[a] ?? 0) || rng() - 0.5 || a.localeCompare(b)
-  );
+  // 领域排序：全仓唯一实现（点评与决策共用，见 `rankDomains`）。
+  const domainOrder = rankDomains(context, weights);
 
   // 领域内选题：只对**权重最高的域**排序（一次决策只聚焦一个域，保持可解释）。
   const focusDomain = domainOrder[0];
@@ -166,26 +164,35 @@ function buildRationale(
   const wrongs = context.facts.wrongCounts[focusDomain] ?? 0;
   const mastery = context.facts.mastery[focusDomain] ?? 0;
   const parts = [
-    `聚焦 ${focusDomain}（权重 ${(weights[focusDomain] ?? 0).toFixed(2)}）`,
+    `聚焦 ${domainName(focusDomain)}（权重 ${(weights[focusDomain] ?? 0).toFixed(2)}）`,
     // mastery 是**净答对数**，不是百分比 —— 直接 ×100 会得到「净答对 1 次 = 100%」。
     // 展示为"熟练度 N/10"（满星刻度，见 MASTERY_FULL_MARKS）。
     `熟练度 ${mastery.toFixed(0)}/${MASTERY_FULL_MARKS}`,
     `答 ${attempts} 错 ${wrongs}`,
-    `领域顺序 ${domainOrder.join(" > ")}`,
+    `领域顺序 ${domainOrder.map(domainName).join(" > ")}`,
   ];
   return parts.join(" · ");
 }
 
 /**
- * 主题级掌握度（从事实层的领域掌握度近似）——
- * 事实层按域聚合，主题级用该域的平均掌握度兜底。
+ * 知识点熟练度表（键 `domain|topic`）。
+ *
+ * **优先用该知识点自己的值**（`facts.topicMastery`，与 `recordMastery` 同口径），
+ * 缺失时才回落到所在领域的均值 —— 回落分支只服务两种情况：
+ * 1) 旧数据 / 契约升级前构造的上下文没有 `topicMastery`；
+ * 2) 该 topic 从未被作答（存储里没有这个键），此时域均值是有意义的先验。
+ *
+ * 回落是**降级**，不是等价：同域内一个 topic 熟练、另一个生疏时，
+ * 用域均值会让两者排序完全相同，等于丢掉了题目级的区分能力。
  */
 function topicMasteryMap(context: NpcContext): Record<string, number> {
   const out: Record<string, number> = {};
+  const topicFacts = context.facts.topicMastery ?? {};
   for (const domain of context.domains) {
-    const m = context.facts.mastery[domain] ?? 0;
+    const domainAverage = context.facts.mastery[domain] ?? 0;
     for (const q of context.pool[domain] ?? []) {
-      out[q.topic] = m;
+      const key = `${domain}|${q.topic}`;
+      out[key] = topicFacts[key] ?? domainAverage;
     }
   }
   return out;
@@ -201,6 +208,23 @@ function normalizeWeights(raw: Record<string, number>): Record<string, number> {
     return Object.fromEntries(Object.keys(raw).map((k) => [k, equal]));
   }
   return Object.fromEntries(Object.entries(raw).map(([k, v]) => [k, clamp01(v / max)]));
+}
+
+/**
+ * 领域优先级排序：权重降序；同权重用种子稳定排序（保证可复现）。
+ *
+ * **全仓唯一的领域排序实现**：`decideNpc` 的 `domainOrder` 与降级点评
+ * （`commentary.ts` 的 `pickWeakestDomain`）都调用它，
+ * 从而保证"点评点名的域"恒等于 `domainOrder[0]`，不会出现两套口径。
+ */
+export function rankDomains(
+  context: NpcContext,
+  weights: Record<string, number> = computeDomainWeights(context)
+): DomainId[] {
+  const rng = mulberry32(hashSeed("npc-domains:" + context.seed));
+  return [...context.domains].sort(
+    (a, b) => (weights[b] ?? 0) - (weights[a] ?? 0) || rng() - 0.5 || a.localeCompare(b)
+  );
 }
 
 function clamp01(v: number): number {
