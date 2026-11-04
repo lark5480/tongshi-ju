@@ -120,18 +120,6 @@ export interface BuildDailyParams {
    */
   allowedTypes?: readonly QuestionType[];
   /**
-   * NPC 给出的领域优先级（首位 = 最该练的）。
-   *
-   * **只影响当日题目的「先后」，不影响「哪 5 题」**：
-   * 题集仍由 `dailySeed(dateKey, domains)` 决定，因此同日期 + 同领域集合
-   * 在全网仍是**同一份题**（AGENTS.md §2.1）。若用它改变抽题配比，
-   * 不同熟练度的用户会拿到不同题，红榜与 PK 立刻失去意义。
-   *
-   * 缺省（首次使用 / NPC 不可用）时完全走既有轮转，行为逐题不变。
-   * `legacy` 调度忽略该参数（duel 的房间局不能带用户级偏好）。
-   */
-  domainOrder?: readonly DomainId[];
-  /**
    * 抽题调度：
    * - `legacy`（默认）：保留旧随机抽题。**duel 必须留在这里** —— 它用房间 seed +
    *   空 `dateKey`，没有「按日期推进游标」的语义，且 5 回合由 `TOTAL_ROUNDS` 截断；
@@ -262,26 +250,6 @@ function takeCycleQuestion(
 }
 
 /**
- * 按 NPC 的领域优先级重排当日题目 —— **只换顺序，不换题集**。
- *
- * 末位彩蛋题固定在末位（`isEgg` 语义不变），其余按 `domainOrder` 升序、
- * 同域按原顺序稳定排序。未出现在 `domainOrder` 里的域排到最后。
- */
-function orderPicksByDomain(picks: DailyPick[], domainOrder: readonly DomainId[]): DailyPick[] {
-  if (picks.length === 0) return picks;
-  const rank = new Map(domainOrder.map((d, i) => [d, i] as const));
-  const fallback = domainOrder.length;
-  const head = picks.slice(0, -1);
-  const tail = picks.slice(-1);
-  const ordered: DailyPick[] = [...head].sort(
-    (a, b) =>
-      (rank.get(a.question.domain) ?? fallback) - (rank.get(b.question.domain) ?? fallback) ||
-      a.index - b.index
-  );
-  return [...ordered, ...tail].map((pick, index) => ({ ...pick, index }));
-}
-
-/**
  * 构建每日题集。
  *
  * 退化行为（保证「绝不出现空题面」）：
@@ -324,14 +292,10 @@ export function buildDailySet(params: BuildDailyParams): DailyPick[] {
       picks.push({ question: q, isEgg: i === count - 1, index: picks.length });
     }
 
-    const result: DailyPick[] = picks.map((pick) => ({
+    return picks.map((pick) => ({
       ...pick,
       question: shuffleOptions(pick.question, seed),
     }));
-
-    // NPC 偏好只重排「先后」，题集与 seed 派生的选项顺序都不变。
-    // 未传 domainOrder 时原样返回 —— 首次使用 / NPC 失败与改动前逐题一致。
-    return params.domainOrder ? orderPicksByDomain(result, params.domainOrder) : result;
   }
 
   const rng = mulberry32(seed);

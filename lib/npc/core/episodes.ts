@@ -60,6 +60,8 @@ export function buildAnswerEvent(params: {
   readonly correct: boolean;
   /** 本局连击（真实值，0 表示答错或尚未起连）。 */
   readonly combo: number;
+  /** 作答来源：`public` = 公共题；`practice` = 第 5 题加练（不计分）。 */
+  readonly source?: AnswerEvent["source"];
   readonly at: number;
 }): AnswerEvent {
   const streak = Number.isFinite(params.combo) ? Math.max(0, Math.floor(params.combo)) : 0;
@@ -70,6 +72,7 @@ export function buildAnswerEvent(params: {
     difficulty: params.difficulty,
     correct: params.correct,
     streak,
+    ...(params.source ? { source: params.source } : {}),
     at: params.at,
   };
 }

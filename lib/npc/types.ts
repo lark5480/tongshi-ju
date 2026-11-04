@@ -29,8 +29,13 @@ export interface AnswerEvent {
   readonly difficulty: number;
   /** 是否答对。 */
   readonly correct: boolean;
-  /** 该题当时的连续答对次数（来自错题本 `streak`）。 */
+  /** 该题当时的连续答对次数（来自本局真实连击，见 `buildAnswerEvent`）。 */
   readonly streak: number;
+  /**
+   * 作答来源：`public` = 前 4 题（全网同题、计分）；`practice` = 第 5 题加练（不计分）。
+   * 可选：旧事件没有该字段，读取方按 `public` 处理。
+   */
+  readonly source?: "public" | "practice";
   /** 事件发生时刻（毫秒时间戳；由调用方注入，引擎层不读时钟）。 */
   readonly at: number;
 }

@@ -5,6 +5,7 @@ import { BarChart3, Flame, Medal, Star, Target, TrendingUp, Trophy } from "lucid
 
 import { domainName } from "@/content/domains";
 import { getHistory, getRankSnapshot } from "@/lib/storage";
+import { SCORING_VERSION, scoringVersionLabel, scoringVersionOf } from "@/lib/engine/scoring";
 import type { RankSnapshot } from "@/lib/engine/rank";
 import type { HistoryEntry } from "@/types";
 
@@ -25,10 +26,22 @@ export default function HistoryPage() {
     setReady(true);
   }, []);
 
+  /**
+   * 统计口径分离：新记录（v2，4 题计分）与旧记录（v1，5 题计分）不混算。
+   *
+   * 旧记录缺失 `scoringVersion` 即按 v1 处理，**不重算、不补齐**；
+   * 汇总与趋势只看当前口径，避免把两种满分口径画成一条下滑曲线。
+   */
+  const currentEntries = useMemo(
+    () => entries.filter((e) => e.mode !== "daily" || scoringVersionOf(e) === SCORING_VERSION),
+    [entries]
+  );
+  const legacyCount = entries.filter((e) => e.mode === "daily" && scoringVersionOf(e) === 1).length;
+
   /** 按日期正序（存储是倒序存的），用于画趋势。 */
   const chronological = useMemo(
-    () => [...entries].sort((a, b) => a.date.localeCompare(b.date)),
-    [entries]
+    () => [...currentEntries].sort((a, b) => a.date.localeCompare(b.date)),
+    [currentEntries]
   );
 
   if (!ready) return null;
@@ -47,11 +60,11 @@ export default function HistoryPage() {
     );
   }
 
-  const totalScore = entries.reduce((s, e) => s + e.score, 0);
-  const totalCorrect = entries.reduce((s, e) => s + e.correct, 0);
-  const totalQuestions = entries.reduce((s, e) => s + e.total, 0);
+  const totalScore = currentEntries.reduce((s, e) => s + e.score, 0);
+  const totalCorrect = currentEntries.reduce((s, e) => s + e.correct, 0);
+  const totalQuestions = currentEntries.reduce((s, e) => s + e.total, 0);
   const accuracy = totalQuestions > 0 ? Math.round((totalCorrect / totalQuestions) * 100) : 0;
-  const bestCombo = entries.reduce((m, e) => Math.max(m, e.maxCombo), 0);
+  const bestCombo = currentEntries.reduce((m, e) => Math.max(m, e.maxCombo), 0);
 
   // ---- 趋势图坐标 ----
   const scores = chronological.map((e) => e.score);
@@ -83,7 +96,12 @@ export default function HistoryPage() {
           <BarChart3 size={20} className="text-success" aria-hidden />
           战绩
         </h1>
-        <p className="text-sm text-muted">最近 {entries.length} 场</p>
+        <p className="text-sm text-muted">最近 {entries.length} 场 · 统计不含旧口径（5 题）记录</p>
+        {legacyCount > 0 && (
+          <p className="text-xs text-dim">
+            另有 {legacyCount} 场旧口径（5 题）记录，按 v1 保留，不计入上方统计、趋势与段位。
+          </p>
+        )}
       </header>
 
       {/* 段位 */}
@@ -148,7 +166,7 @@ export default function HistoryPage() {
             <BarChart3 size={13} className="text-muted" aria-hidden />
             场次
           </div>
-          <div className="tabular mt-1 text-xl font-bold">{entries.length}</div>
+          <div className="tabular mt-1 text-xl font-bold">{currentEntries.length}</div>
         </div>
         <div className="panel p-3">
           <div className="flex items-center gap-1.5 text-xs text-muted">
@@ -171,12 +189,15 @@ export default function HistoryPage() {
           </div>
           <span className="tabular text-xs text-muted">最高 {maxScore} 分</span>
         </div>
+        {chronological.length === 0 && (
+          <p className="mt-2 text-xs text-dim">还没有新口径战绩，完成今天的挑战后开始记录。</p>
+        )}
 
         <svg
           viewBox={`0 0 ${CHART_W} ${CHART_H}`}
           className="mt-2 h-auto w-full"
           role="img"
-          aria-label={`最近 ${entries.length} 场分数趋势，最高 ${maxScore} 分`}
+          aria-label={`最近 ${currentEntries.length} 场分数趋势，最高 ${maxScore} 分`}
         >
           {/* 基线 */}
           <line
@@ -233,6 +254,11 @@ export default function HistoryPage() {
               <span className="rounded-pill bg-surface-2 px-2 py-0.5 text-[10px] text-muted">
                 {e.mode === "daily" ? "每日" : `对战 · ${e.roomCode ?? "—"}`}
               </span>
+              {e.mode === "daily" && scoringVersionOf(e) === 1 && (
+                <span className="rounded-pill bg-surface-2 px-2 py-0.5 text-[10px] text-dim">
+                  {scoringVersionLabel(1)}
+                </span>
+              )}
               <span className="ml-auto flex items-center gap-0.5" aria-label={`${e.stars} 星`}>
                 {Array.from({ length: e.stars }, (_, k) => (
                   <Star

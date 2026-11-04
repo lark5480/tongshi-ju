@@ -21,6 +21,7 @@ import {
   decideNpc,
   narrate,
   orderQuestions,
+  pickPracticeQuestion,
   pickWeakestDomain,
   retrieveEpisodes,
   ruleImportance,
@@ -28,7 +29,8 @@ import {
   updateFacts,
 } from "../lib/npc";
 import { buildNpcContext } from "../lib/npc/storage";
-import type { Question } from "../types";
+import { buildDailySet } from "../lib/engine/daily";
+import type { DomainId, Question } from "../types";
 
 const NOW = 1_760_000_000_000;
 
@@ -250,6 +252,80 @@ test("事实层：updateFacts 增量维护 topic 值（答对 +1、答错 −1�
   assert.equal(facts.topicMastery?.["gaming|T1"], 1);
   facts = updateFacts(facts, event({ correct: false, topic: "T1" }), false);
   assert.equal(facts.topicMastery?.["gaming|T1"], 0, "净答对数不应小于 0");
+});
+
+// ------------------------------------------------------------ 4+1 第 5 题（加练）
+
+/** 构造「最弱域 = gaming，域内 T1 最生疏」的事实。 */
+function weakGamingFacts(): NpcFacts {
+  return {
+    mastery: { gaming: 1, tech: 9 },
+    topicMastery: {
+      "gaming|T1": 0,
+      "gaming|T2": 3,
+      "gaming|T3": 2,
+      "tech|T1": 5,
+      "tech|T2": 5,
+    },
+    wrongCounts: { gaming: 3 },
+    attemptCounts: { gaming: 5, tech: 3 },
+    lastSeenAt: {},
+    touchedDomains: 2,
+  };
+}
+
+test("4+1 第 5 题：最弱域优先，域内取 topic 熟练度最低的题", () => {
+  const pick = pickPracticeQuestion({
+    context: ctx({ facts: weakGamingFacts() }),
+    excludeIds: new Set<string>(),
+  });
+  assert.ok(pick, "有事实时必须能选出加练题");
+  assert.equal(pick!.question.id, "g1", `应选最弱域 gaming 里 T1 的 g1，实际 ${pick!.question.id}`);
+  assert.match(pick!.reason, /游戏/, "依据应点名最弱域");
+  assert.match(pick!.reason, /3 次/, "依据应给出错题次数");
+});
+
+test("4+1 第 5 题：排除前 4 题已出现的题，同域取完顺延下一个域", () => {
+  const context = ctx({ facts: weakGamingFacts() });
+  const first = pickPracticeQuestion({ context, excludeIds: new Set(["g1", "g2"]) });
+  assert.equal(first?.question.id, "g3", "g1/g2 被排除后应取 g3");
+
+  const none = pickPracticeQuestion({
+    context,
+    excludeIds: new Set(["g1", "g2", "g3", "t1", "t2"]),
+  });
+  assert.equal(none, undefined, "全部题目都被排除时应返回 undefined，由调用方回落");
+});
+
+test("4+1 第 5 题：同 seed + 同事实 → 同题（可复现）", () => {
+  const a = pickPracticeQuestion({
+    context: ctx({ facts: weakGamingFacts(), seed: 7 }),
+    excludeIds: new Set(["g1"]),
+  });
+  const b = pickPracticeQuestion({
+    context: ctx({ facts: weakGamingFacts(), seed: 7 }),
+    excludeIds: new Set(["g1"]),
+  });
+  assert.deepEqual(a, b, "两次调用必须给出完全相同的题与依据");
+});
+
+test("4+1：同日重复请求 → 5 题完全一致（公共 4 + 加练 1）", () => {
+  const domains = ["gaming", "tech"] as DomainId[];
+  const build = () => {
+    const picks = buildDailySet({
+      dateKey: "2026-11-04",
+      domains,
+      pool: ctx().pool,
+      schedule: "cycle",
+    });
+    const publicIds = picks.slice(0, 4).map((p) => p.question.id);
+    const practice = pickPracticeQuestion({
+      context: ctx({ facts: weakGamingFacts() }),
+      excludeIds: new Set(publicIds),
+    });
+    return [...publicIds, practice?.question.id ?? picks[4]?.question.id];
+  };
+  assert.deepEqual(build(), build(), "同一天重复请求必须拿到同一份 5 题");
 });
 
 test("N2 影响玩法：选题顺序把错题排前面", () => {

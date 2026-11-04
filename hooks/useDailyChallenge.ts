@@ -22,7 +22,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import type { DailySession, DomainId, Question } from "@/types";
+import type { DailySession, DomainId, PracticeFunnel, Question } from "@/types";
 import { DOMAINS } from "@/content/domains";
 import { dayKey } from "@/lib/engine/date";
 import { buildDailySet, dailySeed } from "@/lib/engine/daily";
@@ -33,7 +33,10 @@ import {
   DIFFICULTY_LIMIT_MS as LIMIT_MS,
   maxScore,
   nextCombo,
+  PUBLIC_DAILY_COUNT,
   roundPoints,
+  SCORING_VERSION,
+  settlePublicAnswers,
   starRating,
 } from "@/lib/engine/scoring";
 import {
@@ -48,8 +51,8 @@ import { loadQuestionPool } from "@/lib/content/loader";
 import {
   bumpLifetimeStats,
   bumpStreak,
+  getComparableGhost,
   getDailySession,
-  getGhost,
   getHistory,
   getMastery,
   getProfile,
@@ -59,6 +62,7 @@ import {
   saveDailySession,
   saveGhost,
   saveProfile,
+  updatePracticeFunnel,
 } from "@/lib/storage";
 import {
   buildCoachContext,
@@ -66,9 +70,8 @@ import {
   recordCoachEvent,
   requestCoach,
 } from "@/lib/npc/client";
-import { buildAnswerEvent } from "@/lib/npc";
+import { buildAnswerEvent, pickPracticeQuestion } from "@/lib/npc";
 import type { NpcContext, NpcDecision } from "@/lib/npc/types";
-import { rankDomains } from "@/lib/npc/core/policy";
 
 export interface AnswerRecord {
   questionId: string;
@@ -82,6 +85,8 @@ export interface AnswerRecord {
   picked: string | string[];
   answer: string | string[];
   explanation: string;
+  /** 是否为第 5 题（个人加练，不计分）。 */
+  practice: boolean;
 }
 
 export interface DailyChallengeState {
@@ -97,11 +102,11 @@ export interface DailyChallengeState {
   submitted: boolean;
   records: AnswerRecord[];
   /**
-   * 本局答对题数。
+   * 本局**公共题**答对题数（前 4 题）。
    *
    * 独立于 `records` —— 刷新页面后 `records` 为空（逐题明细不落盘），
    * 但答对数是**持久化**的（`DailySession.correct`），结算页必须显示它，
-   * 否则刷新一次就会变成"答对 0 / 5 题"。
+   * 否则刷新一次就会变成"答对 0 / 4 题"。
    */
   correctCount: number;
   score: number;
@@ -118,13 +123,17 @@ export interface DailyChallengeState {
   /** 结算后与影子的对比结论；未结算为 null。 */
   verdict: GhostVerdict | null;
   /**
-   * 老师 NPC 的决策结果（含点评、领域顺序与权重）。
+   * 老师 NPC 的决策结果（含点评、领域权重与依据）。
    *
    * `null` 表示 NPC 还没给出点评（题库未加载完成 / 无本地事实）。
-   * NPC **不改题集**：每日挑战必须全网同题；它只把**当日题目按弱域优先**重排，
-   * 并给出「该练什么」的点评（见 `lib/npc/`）。
+   * 4+1 分轨：前 4 题全网同题并计分；NPC 只影响**第 5 题**的选题，
+   * 以及「该练什么」的点评（见 `lib/npc/`）。
    */
   npc: NpcDecision | null;
+  /** 第 5 题（个人加练）的选题依据；`null` 表示今天没有加练题。 */
+  practiceReason: string | null;
+  /** 加练题是否答对（未作答为 `null`）。 */
+  practiceCorrect: boolean | null;
   start: () => void;
   toggleOption: (option: string) => void;
   /**
@@ -160,6 +169,8 @@ export function useDailyChallenge(): DailyChallengeState {
   const [ghost, setGhost] = useState<GhostRecord | null>(null);
   const [verdict, setVerdict] = useState<GhostVerdict | null>(null);
   const [npc, setNpc] = useState<NpcDecision | null>(null);
+  const [practiceReason, setPracticeReason] = useState<string | null>(null);
+  const [practiceCorrect, setPracticeCorrect] = useState<boolean | null>(null);
 
   /** 本题开始时刻（本地，仅用于显示与速度分）。 */
   const startedAtRef = useRef<number>(0);
@@ -212,7 +223,8 @@ export function useDailyChallenge(): DailyChallengeState {
         if (cancelled) return;
         setMode(locked?.mode ?? dailyMode);
         setDomains(useDomains);
-        setGhost(getGhost(ghostKey(useDomains)));
+        // 影子只展示同口径的基准：旧口径（5 题）记录不与 4 题成绩混比。
+        setGhost(getComparableGhost(ghostKey(useDomains)));
 
         if (locked) {
           const pool = await loadQuestionPool(useDomains);
@@ -230,8 +242,12 @@ export function useDailyChallenge(): DailyChallengeState {
               setMaxCombo(locked.maxCombo ?? 0);
               setRecords([]);
               setCorrectCount(locked.correct ?? 0);
-              // 已完成的一局：直接给出与影子的对比结论
-              setVerdict(compareWithGhost(locked.score ?? 0, getGhost(ghostKey(useDomains))));
+              setPracticeReason(locked.practiceReason ?? null);
+              setPracticeCorrect(locked.practiceCorrect ?? null);
+              // 已完成的一局：直接给出与**同口径**影子的对比结论
+              setVerdict(
+                compareWithGhost(locked.score ?? 0, getComparableGhost(ghostKey(useDomains)))
+              );
             } else {
               setIndex(0);
             }
@@ -243,15 +259,14 @@ export function useDailyChallenge(): DailyChallengeState {
         // 抽题并锁定
         const pool = await loadQuestionPool(useDomains);
 
-        // ---- 老师 NPC：先算领域优先级，再抽题 ----
+        // ---- 4+1 分轨：前 4 题全网同题，第 5 题由 NPC 个人加练 ----
         //
-        // NPC 是**难度调节器**：它读本地事实（熟练度 / 错题本 / 历史 / 情景层），
-        // 决定当日题目的**先后**（弱域先考）。题集本身仍由
-        // `f(日期, 领域集合)` 决定 —— 同日期同领域集合全网仍是同一份题
-        // （AGENTS.md §2.1），NPC 不参与「选题」。
+        // 前 4 题严格走 `buildDailySet`（不注入任何用户事实）—— 同日期 + 同领域集合
+        // 全网逐题一致（AGENTS.md §2.1）。NPC 只选第 5 题：
+        // 最弱域 → 最生疏知识点 → 排除前 4 题已出现的题。
         //
-        // 首次使用（没有任何答题事实）或构造失败 → 不传 domainOrder，
-        // 完全走既有轮转，行为与接线前逐题一致。
+        // 首次使用（没有任何答题事实）或上下文构造失败 → 不选加练题，
+        // 第 5 题回落到公共题的原第 5 题，行为与改动前一致。
         let npcContext: NpcContext | null = null;
         try {
           npcContext = buildCoachContext({
@@ -272,41 +287,65 @@ export function useDailyChallenge(): DailyChallengeState {
             now: Date.now(),
           });
         } catch (error) {
-          console.warn("[daily] NPC 上下文不可用，回落默认轮转：", error);
+          console.warn("[daily] NPC 上下文不可用，第 5 题回落公共题：", error);
         }
 
-        const npcDomainOrder: DomainId[] | undefined =
-          npcContext && npcContext.facts.touchedDomains > 0 ? rankDomains(npcContext) : undefined;
-
-        const picks = buildDailySet({
+        const publicPicks = buildDailySet({
           dateKey: date,
           domains: useDomains,
           pool,
           // 同一领域集合下整池轮转，避免“2 天撞同一题”
           schedule: "cycle",
-          ...(npcDomainOrder ? { domainOrder: npcDomainOrder } : {}),
         });
-        if (picks.length === 0) {
+        if (publicPicks.length === 0) {
           setError("所选领域的题库还在准备中，请稍后再试或换个领域");
           setLoading(false);
           return;
         }
-        const qs = picks.map((p) => p.question);
+
+        const publicQuestions = publicPicks.slice(0, PUBLIC_DAILY_COUNT).map((p) => p.question);
+        const fallbackFifth = publicPicks[PUBLIC_DAILY_COUNT]?.question;
+        const practice =
+          npcContext && npcContext.facts.touchedDomains > 0
+            ? pickPracticeQuestion({
+                context: npcContext,
+                excludeIds: new Set(publicQuestions.map((q) => q.id)),
+              })
+            : undefined;
+        const practiceQuestion = practice?.question ?? fallbackFifth;
+        const qs = practiceQuestion ? [...publicQuestions, practiceQuestion] : publicQuestions;
+        const reason =
+          practice?.reason ??
+          (practiceQuestion ? "先在公共题里热身，以后我会按你的薄弱域出加练题" : null);
+
         setQuestions(qs);
+        setPracticeReason(reason);
+        setPracticeCorrect(null);
         const session: DailySession = {
           date,
           domains: useDomains,
           questionIds: qs.map((q) => q.id),
           done: false,
           mode: dailyMode,
+          scoringVersion: SCORING_VERSION,
+          ...(reason ? { practiceReason: reason } : {}),
+          ...(practiceQuestion
+            ? {
+                practiceFunnel: {
+                  shown: true,
+                  answered: false,
+                  correct: false,
+                  resultSeen: false,
+                } satisfies PracticeFunnel,
+              }
+            : {}),
         };
         saveDailySession(session);
         setLoading(false);
 
         // ---- 老师 NPC：拿到点评（模型不可用时由服务端降级为模板）----
         //
-        // 决策（domainOrder / weights）已经在抽题前用同一份上下文算好；
-        // 这里只补「说什么」。传同一个 `now`，保证服务端算出的顺序与本地一致。
+        // 选题已经用上面这份上下文算好；这里只补「说什么」。
         const coachContext = npcContext;
         void (async () => {
           if (!coachContext) return;
@@ -388,11 +427,17 @@ export function useDailyChallenge(): DailyChallengeState {
       if (answerList.length === 0 || answerList.every((a) => !a)) return;
 
       const correct = isCorrect(current.type, current.answer, value);
-      // 跨域连击：只在跨域时增长，同域不增长也不清零；答错清零
-      const nextComboValue = correct
-        ? nextCombo(combo, true, lastWinDomainRef.current, current.domain)
-        : 0;
-      const points = correct ? roundPoints(current.difficulty, elapsed, limit, combo) : 0;
+      // 4+1 分轨：第 5 题（index = PUBLIC_DAILY_COUNT）是个人加练，不计分。
+      const isPractice = index === PUBLIC_DAILY_COUNT;
+      // 跨域连击：只在跨域时增长，同域不增长也不清零；答错清零。
+      // 加练题不参与连击 —— 它不计分，也不该影响排行榜口径。
+      const nextComboValue = isPractice
+        ? combo
+        : correct
+          ? nextCombo(combo, true, lastWinDomainRef.current, current.domain)
+          : 0;
+      const points =
+        correct && !isPractice ? roundPoints(current.difficulty, elapsed, limit, combo) : 0;
 
       const record: AnswerRecord = {
         questionId: current.id,
@@ -406,15 +451,17 @@ export function useDailyChallenge(): DailyChallengeState {
         picked: value,
         answer: current.answer,
         explanation: current.explanation,
+        practice: isPractice,
       };
 
-      if (correct) lastWinDomainRef.current = current.domain;
+      if (correct && !isPractice) lastWinDomainRef.current = current.domain;
 
       setRecords((prev) => [...prev, record]);
       setScore((s) => s + points);
-      if (correct) setCorrectCount((n) => n + 1);
+      if (correct && !isPractice) setCorrectCount((n) => n + 1);
       setCombo(nextComboValue);
-      setMaxCombo((m) => Math.max(m, nextComboValue));
+      if (!isPractice) setMaxCombo((m) => Math.max(m, nextComboValue));
+      if (isPractice) setPracticeCorrect(correct);
       setSubmitted(true);
 
       recordAttempt({
@@ -423,6 +470,9 @@ export function useDailyChallenge(): DailyChallengeState {
         topic: current.topic,
         correct,
       });
+
+      // ---- 加练题埋点：已作答 / 作答正确（只写当日会话，不影响分数与排名） ----
+      if (isPractice) updatePracticeFunnel(date, { answered: true, correct });
 
       // ---- 老师 NPC：记录本次作答（跨会话记忆的来源） ----
       //
@@ -460,6 +510,8 @@ export function useDailyChallenge(): DailyChallengeState {
             difficulty: current.difficulty,
             correct,
             combo: nextComboValue,
+            // 标注来源：公共题 / 加练题，便于以后按曝光统计覆盖。
+            source: isPractice ? "practice" : "public",
             at: Date.now(),
           }),
         });
@@ -467,7 +519,7 @@ export function useDailyChallenge(): DailyChallengeState {
         console.warn("[daily] NPC 记忆写入失败：", error);
       }
     },
-    [current, picked, submitted, combo]
+    [current, picked, submitted, combo, index, date]
   );
 
   /** 进入下一题；最后一题则结算。 */
@@ -479,21 +531,32 @@ export function useDailyChallenge(): DailyChallengeState {
       setSubmitted(false);
       return;
     }
-    // 结算
-    const finalScore = score;
-    const max = maxScore(questions.map((q) => q.difficulty));
-    const rating = starRating(finalScore, max);
+    // 结算：4+1 分轨只按**公共题**（前 4 题）计分、计连击、计答对数。
+    // 第 5 题即使答对也不进 score / maxCombo / history，只写熟练度。
+    const settled = settlePublicAnswers(records);
+    const publicQuestions = questions.slice(0, PUBLIC_DAILY_COUNT);
+    const max = maxScore(publicQuestions.map((q) => q.difficulty));
+    const rating = starRating(settled.score, max);
+    const finalScore = settled.score;
+    const correctCount = settled.correct;
+    const publicMaxCombo = settled.maxCombo;
+    const practiceRecord = records.find((r) => r.practice);
+    // 加练题埋点：展示 / 作答 / 正确；结算页曝光由页面调用 markPracticeResultSeen 补写。
+    const practiceFunnel: PracticeFunnel = {
+      shown: questions.length > PUBLIC_DAILY_COUNT,
+      answered: practiceRecord !== undefined,
+      correct: practiceRecord?.correct ?? false,
+      resultSeen: false,
+    };
     setStars(rating);
     setFinished(true);
 
-    const session = getDailySession(date);
-    const correctCount = records.filter((r) => r.correct).length;
-
     // ---- 影子对手：用本局成绩刷新"过去的自己" ----
     // 对比的是**本局开始前**的影子：先算结论，再更新影子，否则等于自己跟自己比。
+    // 只取同口径影子：旧口径（5 题）的最高分不能当 4 题成绩的基准。
     const key = ghostKey(domains);
-    const prevGhost = getGhost(key);
-    const totalElapsed = records.reduce((sum, r) => sum + r.elapsed, 0);
+    const prevGhost = getComparableGhost(key);
+    const totalElapsed = records.filter((r) => !r.practice).reduce((sum, r) => sum + r.elapsed, 0);
     saveGhost(
       updateGhost(prevGhost, {
         key,
@@ -501,12 +564,17 @@ export function useDailyChallenge(): DailyChallengeState {
         correct: correctCount,
         date,
         elapsed: totalElapsed,
+        scoringVersion: SCORING_VERSION,
       })
     );
     setVerdict(compareWithGhost(finalScore, prevGhost));
 
     // ---- 生涯累计（段位用，不受 30 场历史窗口影响） ----
-    bumpLifetimeStats({ correct: correctCount, stars: rating, maxCombo });
+    // 按口径分桶：旧数据留在 v1，不参与 v2 段位。
+    bumpLifetimeStats(
+      { correct: correctCount, stars: rating, maxCombo: publicMaxCombo },
+      SCORING_VERSION
+    );
 
     saveDailySession({
       date,
@@ -516,8 +584,12 @@ export function useDailyChallenge(): DailyChallengeState {
       score: finalScore,
       correct: correctCount,
       stars: rating,
-      maxCombo,
+      maxCombo: publicMaxCombo,
       mode,
+      scoringVersion: SCORING_VERSION,
+      practiceFunnel,
+      ...(practiceReason ? { practiceReason } : {}),
+      ...(practiceRecord ? { practiceCorrect: practiceRecord.correct } : {}),
     });
     bumpStreak(date);
     pushHistory({
@@ -525,13 +597,15 @@ export function useDailyChallenge(): DailyChallengeState {
       domains,
       score: finalScore,
       correct: correctCount,
-      total: questions.length,
+      // 榜单口径：只算公共题，题数与得分同源。
+      total: publicQuestions.length,
       stars: rating,
-      maxCombo,
+      maxCombo: publicMaxCombo,
       mode: "daily",
+      // 新记录标 v2；旧记录没有该字段，按 v1 处理，不重算。
+      scoringVersion: SCORING_VERSION,
     });
-    void session;
-  }, [submitted, index, questions, score, records, date, domains, maxCombo, mode]);
+  }, [submitted, index, questions, records, date, domains, mode, practiceReason]);
 
   /** 多选题：切换选项暂存；单选/判断题：直接提交。 */
   const toggleOption = useCallback(
@@ -562,6 +636,7 @@ export function useDailyChallenge(): DailyChallengeState {
     setMaxCombo(0);
     setFinished(false);
     setStars(0);
+    setPracticeCorrect(null);
   }, []);
 
   return {
@@ -585,6 +660,8 @@ export function useDailyChallenge(): DailyChallengeState {
     ghost,
     verdict,
     npc,
+    practiceReason,
+    practiceCorrect,
     start: reset,
     toggleOption,
     submit,

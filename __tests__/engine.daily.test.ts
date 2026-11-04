@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import type { DomainId, Question } from "../types";
+import type { Difficulty, DomainId, Question } from "../types";
 import {
   DEFAULT_DAILY_COUNT,
   buildDailySet,
@@ -12,6 +12,7 @@ import {
   pickRandomDomains,
 } from "../lib/engine/daily";
 import { shiftDay } from "../lib/engine/date";
+import { maxScore, PUBLIC_DAILY_COUNT, settlePublicAnswers } from "../lib/engine/scoring";
 
 /** 构造测试题池。 */
 function makePool(domains: DomainId[], perDomain: number): Partial<Record<DomainId, Question[]>> {
@@ -382,8 +383,9 @@ test("纯函数：不修改入参题池", () => {
   assert.equal(JSON.stringify(pool), before, "题池不应被修改");
 });
 
-test("NPC 未提供领域顺序时与接线前逐题一致（回归基线）", () => {
-  // 基线是接线前从 `buildDailySet` 实测导出的题号 —— 用来防止默认路径被悄悄改掉。
+test("4+1：前 4 题与改动前逐题一致，第 5 题回落为原第 5 题", () => {
+  // 基线是分轨前从 `buildDailySet` 实测导出的题号 —— 前 4 题是硬回归线，
+  // 第 5 题在无 NPC 事实时必须原样保留。
   const pool = makePool(DOMS, 60);
 
   const jan16 = buildDailySet({
@@ -393,10 +395,11 @@ test("NPC 未提供领域顺序时与接线前逐题一致（回归基线）", (
     schedule: "cycle",
   });
   assert.deepEqual(
-    jan16.map((p) => p.question.id),
-    ["gaming-0030", "life-0006", "tech-0037", "gaming-0022", "life-0056"],
-    "无 domainOrder 时必须与改动前逐题一致"
+    jan16.slice(0, 4).map((p) => p.question.id),
+    ["gaming-0030", "life-0006", "tech-0037", "gaming-0022"],
+    "前 4 题必须与改动前逐题一致"
   );
+  assert.equal(jan16[4]?.question.id, "life-0056", "无 NPC 事实时第 5 题必须回落为原第 5 题");
 
   const nov01 = buildDailySet({
     dateKey: "2026-11-01",
@@ -405,69 +408,42 @@ test("NPC 未提供领域顺序时与接线前逐题一致（回归基线）", (
     schedule: "cycle",
   });
   assert.deepEqual(
-    nov01.map((p) => p.question.id),
-    ["life-0048", "tech-0039", "gaming-0007", "life-0046", "tech-0038"],
-    "无 domainOrder 时必须与改动前逐题一致"
+    nov01.slice(0, 4).map((p) => p.question.id),
+    ["life-0048", "tech-0039", "gaming-0007", "life-0046"],
+    "前 4 题必须与改动前逐题一致"
   );
+  assert.equal(nov01[4]?.question.id, "tech-0038", "无 NPC 事实时第 5 题必须回落为原第 5 题");
 });
 
-test("NPC 领域顺序：只重排当日先后，题集与配比不变（红线：全网同题）", () => {
-  const pool = makePool(DOMS, 60);
-  const base = buildDailySet({
-    dateKey: "2026-01-16",
-    domains: DOMS,
-    pool,
-    schedule: "cycle",
-  });
-  const ordered = buildDailySet({
-    dateKey: "2026-01-16",
-    domains: DOMS,
-    pool,
-    schedule: "cycle",
-    domainOrder: ["life", "tech", "gaming"],
-  });
+test("4+1 计分：只按前 4 题结算，第 5 题答对/答错都不影响分数", () => {
+  const publicAnswers = [10, 10, 10, 10].map((points) => ({
+    correct: true,
+    points,
+    combo: 0,
+  }));
+  // 故意给加练题一个非零 points，证明它被排除而不是"恰好为 0"。
+  const practiceAnswer = { correct: true, points: 99, combo: 0, practice: true };
 
-  // 题集必须完全相同：顺序变化不能让任何人拿到不同的题。
-  assert.deepEqual(
-    ordered
-      .map((p) => p.question.id)
-      .slice()
-      .sort(),
-    base
-      .map((p) => p.question.id)
-      .slice()
-      .sort(),
-    "NPC 不得改变当日题集"
-  );
+  const withCorrect = settlePublicAnswers([...publicAnswers, practiceAnswer]);
+  const withWrong = settlePublicAnswers([...publicAnswers, { ...practiceAnswer, correct: false }]);
 
-  // 配比不变：每个域出现的次数一致。
-  const count = (picks: typeof base, domain: DomainId) =>
-    picks.filter((p) => p.question.domain === domain).length;
-  for (const domain of DOMS) {
-    assert.equal(count(ordered, domain), count(base, domain), `${domain} 的题量不应变化`);
-  }
-
-  // 弱域排到最前，彩蛋题仍在末位。
-  assert.equal(ordered[0]?.question.domain, "life", "弱域题应排第一");
-  assert.equal(ordered[ordered.length - 1]?.isEgg, true, "彩蛋题固定末位");
+  assert.equal(withCorrect.score, 40, "分数只能来自前 4 题");
+  assert.equal(withWrong.score, 40, "加练题答错也不扣公共题的分");
+  assert.equal(withCorrect.correct, 4, "答对题数只算公共题");
+  assert.equal(withWrong.correct, 4);
 });
 
-test("NPC 领域顺序：同 seed + 同顺序 → 逐题可复现", () => {
-  const pool = makePool(DOMS, 60);
-  const args = {
-    dateKey: "2026-11-01",
-    domains: DOMS,
-    pool,
-    schedule: "cycle" as const,
-    domainOrder: ["tech", "life", "gaming"] as DomainId[],
-  };
-  const a = buildDailySet(args);
-  const b = buildDailySet(args);
-  assert.deepEqual(
-    a.map((p) => p.question.id),
-    b.map((p) => p.question.id)
+test("4+1：满分只按前 4 题难度计算", () => {
+  const diffs: Difficulty[] = [1, 1, 2, 3, 3];
+  assert.equal(
+    maxScore(diffs.slice(0, PUBLIC_DAILY_COUNT)),
+    maxScore([1, 1, 2, 3]),
+    "第 5 题不计入满分分母"
   );
-  assert.equal(a[0]?.question.domain, "tech");
+  assert.ok(
+    maxScore(diffs) > maxScore(diffs.slice(0, PUBLIC_DAILY_COUNT)),
+    "若把第 5 题算进去，满分会被抬高 —— 这正是要挡住的口径漂移"
+  );
 });
 
 test("dailySeed 稳定且随领域变化", () => {

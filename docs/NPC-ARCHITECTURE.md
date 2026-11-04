@@ -9,7 +9,8 @@
 ## 0. 一句话
 
 **老师 NPC 是一个难度调节器**：它读既有引擎产出的数据（熟练度 / 错题本 / 历史），
-算出「你该练哪个域」，并给出一句点评。**它不改题集、不裁决规则、不接受自由聊天。**
+算出「你该练哪个域」，并给出一句点评。**它不改前 4 题、不裁决规则、不接受自由聊天**；
+只影响第 5 题（个人加练、不计分）。
 
 ---
 
@@ -53,7 +54,7 @@ types ← core ← narrator ← client / route
 | ② | 记忆检索评分公式 `α_rec·recency + α_imp·importance + α_rel·relevance` | `core/retrieve.ts` | 权重变更须在裁决清单追加条目 |
 | ③ | 重要度标度 **[1,10]**，两个来源同标度 | `core/importance.ts` | 改标度 = 改行为，须追加裁决 |
 | ④ | 领域权重口径 `weakness×0.5 + errorRate×0.3 + recency×0.2` | `core/policy.ts` | 同上 |
-| ⑤ | NPC **不改领域集合、不改题集**；只重排当日题目**先后** | `core/policy.ts` + `lib/engine/daily.ts` | 红线：改题集即破坏"全网同题" |
+| ⑤ | 前 4 题**全网同题**、逐题不变；NPC 只影响第 5 题（个人加练、不计分） | `core/practice.ts` + `hooks/useDailyChallenge.ts` | 红线：改前 4 题即破坏"全网同题" |
 | ⑥ | 降级契约：模型不可用/超时/失败 → 模板点评 + `degraded: true` + 原因 | `narrator.ts` | 不可静默降级 |
 
 ---
@@ -149,21 +150,31 @@ questionOrder   = 领域内：错题优先 → 低熟练度知识点优先 → �
 > **权重语义**：**越高 = 越该练**（越薄弱）。全新域薄弱度满格（1.0）——
 > 这是设计意图（`buildCommentary`："新领域的记忆最值钱"），不是 bug。
 
-### ⚠️ NPC 不改题集，只重排当日先后（红线 5）
+### ⚠️ 4+1 分轨：前 4 题全网同题，第 5 题个人加练（红线 5）
 
-每日挑战的题集必须**全网一致**（同日期 + 同领域集合 → 同一份题），
-否则红榜与同题 PK 失去意义。因此：
+每日挑战的**前 4 题**必须全网一致（同日期 + 同领域集合 → 同一份题），
+否则红榜与同题 PK 失去意义。**第 5 题是破例条款**（AGENTS.md §2.1）：
 
-- **不改领域集合**：集合仍由 `resolveDailyDomains` 产出；
-- **不改题集**：抽题仍由 `dailySeed(dateKey, domains)` 决定，NPC 不参与选题；
-- **只改先后**：`buildDailySet` 接受可选 `domainOrder`，把当日 5 题里
-  最该练的领域的题排到前面，彩蛋题仍固定末位。题集与每域题量都不变。
+- **前 4 题**：仍由 `dailySeed(dateKey, domains)` 决定，NPC 不参与；逐题不得变化；
+- **第 5 题**：`lib/npc/core/practice.ts` 的 `pickPracticeQuestion` 按 `domainOrder`
+  选最弱域，域内按 `topicMastery` 选最生疏知识点，并**排除前 4 题已出现的题**；
+- **计分**：引擎只结算前 4 题（`PUBLIC_DAILY_COUNT` / `settlePublicAnswers`）。
+  第 5 题不计分、不计排名、不影响 duel/PK；作答仍写 `mastery`，
+  情景事件标注 `source: "practice"`，便于以后按曝光统计覆盖。
 
-**接线位置**（`hooks/useDailyChallenge.ts`）：抽题**之前**用本地事实算
-`rankDomains(context)`，把结果作为 `domainOrder` 传给 `buildDailySet`。
-首次使用（`touchedDomains === 0`）或构造上下文失败 → 不传该参数，
-**逐题回落**到既有轮转（有回归基线测试保证）。同一天内重复请求走已锁定的
-`DailySession`，不会因答题后熟练度变化而换题。
+**接线位置**（`hooks/useDailyChallenge.ts`）：先 `buildDailySet` 取公共 5 题，
+前 4 题原样使用；第 5 题在有 NPC 事实时由 `pickPracticeQuestion` 替换。
+首次使用（`touchedDomains === 0`）或上下文构造失败 → 不选加练题，
+第 5 题**回落**为公共题的原第 5 题（有回归基线测试保证）。
+同一天内重复请求走已锁定的 `DailySession`，5 题完全一致。
+
+**口径版本与埋点（v2 起）**：历史记录带 `scoringVersion`（缺失 = v1 旧版 5 题计分，
+新记录 = v2 4 题计分）；旧记录**不重算、不补齐"第 5 题"归属**，生涯累计 / 段位 /
+影子对比只比同版本。加练题在当日 `DailySession.practiceFunnel` 记三态
+（展示 / 作答 / 正确）与结算曝光；`getPracticeFunnelSummary(fromDate, toDate)`
+按日期区间返回展示数、作答率、正确率（仅本地，无远端上报）。
+答对时结算页给「你的 <域> 熟练度 +1」的弱反馈，**不改分数 / 排名 / 连击**；
+跳过只给不打扰提示，不惩罚。
 
 **出题可复现靠 PRNG，不靠模型**（裁决 14）：模型只决定"说什么"。
 确定性模板路径（无模型 / 降级）在**同 seed + 同答题序列**下可复现；
@@ -182,7 +193,7 @@ questionOrder   = 领域内：错题优先 → 低熟练度知识点优先 → �
 | 点评服务 HTTP 不可用 | 客户端本地模板兜底 |
 | 客户端网络失败 | 客户端本地模板兜底 |
 
-**降级后 NPC 仍然完整可用**：能选域、能排序、能给基于事实的真实诊断 ——
+**降级后 NPC 仍然完整可用**：能给出领域排序、能选第 5 题、能给基于事实的真实诊断 ——
 只是措辞机械。**降级信息必须显式出现在报告与界面上**。
 
 ---

@@ -294,6 +294,17 @@ export interface WrongEntry {
   nextDueAt: number;
 }
 
+/**
+ * 计分口径版本。
+ *
+ * - `1` = 旧版每日挑战：5 题全部计分；
+ * - `2` = 4+1 分轨：前 4 题计分，第 5 题为个人加练、不计分。
+ *
+ * 旧记录**缺失**该字段时一律按 v1 处理（缺失即旧口径），
+ * 见 `lib/engine/scoring.ts` 的 `scoringVersionOf`。
+ */
+export type ScoringVersion = 1 | 2;
+
 /** 单场历史记录。 */
 export interface HistoryEntry {
   date: string;
@@ -306,6 +317,30 @@ export interface HistoryEntry {
   mode: "daily" | "duel";
   /** duel 专用：对局房间码。 */
   roomCode?: string;
+  /**
+   * 本场使用的计分口径版本。旧记录没有该字段 → 按 v1（5 题计分）处理。
+   *
+   * **不得**为旧记录重算分数，也不得为旧记录补齐"第 5 题"的归属：
+   * 那是另一套口径下的既成事实，重算会改写用户历史。
+   */
+  scoringVersion?: ScoringVersion;
+}
+
+/**
+ * 加练题（第 5 题）埋点三态 + 结算曝光。
+ *
+ * 只存本地（当日会话），不做远端上报；汇总查询见
+ * `lib/storage.ts` 的 `getPracticeFunnelSummary`。
+ */
+export interface PracticeFunnel {
+  /** 已展示：当天题集里出现了第 5 题（含无 NPC 事实时的回落题）。 */
+  shown: boolean;
+  /** 已作答：用户提交了第 5 题（无论对错）。 */
+  answered: boolean;
+  /** 作答正确。 */
+  correct: boolean;
+  /** 结算页是否曝光了加练结果。 */
+  resultSeen: boolean;
 }
 
 /** 每日挑战的锁定结果。 */
@@ -321,4 +356,12 @@ export interface DailySession {
   maxCombo?: number;
   /** 本局使用的领域模式（native / blindbox / random）。 */
   mode?: "native" | "blindbox" | "random";
+  /** 第 5 题（个人加练）的选题依据；缺省表示回落到公共题第 5 题。 */
+  practiceReason?: string;
+  /** 加练题是否答对（未作答则不写）。 */
+  practiceCorrect?: boolean;
+  /** 本局的计分口径版本；旧会话缺失 → 按 v1 处理。 */
+  scoringVersion?: ScoringVersion;
+  /** 加练题埋点（展示 / 作答 / 正确 / 结算曝光）。 */
+  practiceFunnel?: PracticeFunnel;
 }
