@@ -62,6 +62,31 @@ function clampImportance(v: number): number {
 }
 
 /**
+ * 从模型返回里提取重要度。
+ *
+ * 容忍模型把分数包在对象里（`{ importance: 7 }` / `{ score: 7 }`），
+ * 也容忍直接返回数字；解析不出时返回 `null`，由调用方保持规则分并标注降级。
+ */
+export function extractImportanceFromModel(raw: unknown): number | null {
+  if (typeof raw === "number") return normalizeImportance(raw);
+  if (typeof raw === "string") {
+    const n = Number(raw.trim());
+    return Number.isFinite(n) ? normalizeImportance(n) : null;
+  }
+  if (raw && typeof raw === "object") {
+    const obj = raw as Record<string, unknown>;
+    for (const key of ["importance", "score", "value"]) {
+      const v = obj[key];
+      if (typeof v === "number" && Number.isFinite(v)) return normalizeImportance(v);
+      if (typeof v === "string" && v.trim() && Number.isFinite(Number(v))) {
+        return normalizeImportance(Number(v));
+      }
+    }
+  }
+  return null;
+}
+
+/**
  * 综合打分：优先用模型分；不可用时用规则分。
  *
  * @param modelScore 模型给出的重要度（1-10）；`null`/缺省表示模型不可用 → 走规则分

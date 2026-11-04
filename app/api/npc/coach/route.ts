@@ -3,8 +3,9 @@
  *
  * ## 边界（对齐既有 AI 路由的纪律）
  *
- * - **未配置 provider 时返回 503 + `degraded: true` 的降级点评**，
+ * - **未配置 provider 时仍返回 200 + `degraded: true` 的降级点评**，
  *   主链路（每日挑战）完全不受影响 —— 客户端拿到的是模板点评，不是错误；
+ *   （不是 503：HTTP 错误会让调用方误判为服务故障，而这是**预期内的降级路径**）
  * - 模型调用失败**不抛错**，同样降级；
  * - **密钥只从服务端环境变量读取**，绝不进浏览器 bundle；
  * - 限流按 IP，与既有 AI 出题接口同一套机制。
@@ -47,8 +48,12 @@ const npcCoachSchema = z.object({
         topic: z.string(),
         difficulty: z.number().int().min(1).max(3),
         correct: z.boolean(),
+        /** 作答来源：公共题 / 第 5 题加练（旧条目缺省按 public 处理）。 */
+        source: z.enum(["public", "practice"]).optional(),
         at: z.number(),
         importance: z.number().min(1).max(10),
+        /** 重要度来源；缺省表示升级前的旧条目。 */
+        importanceSource: z.enum(["model", "rule"]).optional(),
         lastAccessedAt: z.number(),
       })
     )

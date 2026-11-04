@@ -35,7 +35,8 @@ Next.js 14 (App Router) · React 18 · TypeScript 5.5 · Tailwind 3 · SSE
 **口径版本（v1 / v2）。** 历史记录用 `scoringVersion` 标记：**缺失即 v1**（旧版 5 题计分），
 新记录写 v2（4 题计分）。旧记录**不重算、不补齐"第 5 题"的归属**；生涯累计 / 段位 /
 影子对手对比只比同版本，跨版本不参与排名类计算。加练题只写本地埋点
-（展示 / 作答 / 正确 / 结算曝光，`getPracticeFunnelSummary` 可查），不做远端上报。
+（展示 / 作答 / 正确 / 跳过 / 结算曝光，`getPracticeFunnelSummary` 可查），不做远端上报；
+**跳过不记作答**（`skipped` 与 `answered` 互斥）。
 
 ### 2.2 服务端权威（仅限 duel 房间）
 

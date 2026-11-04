@@ -134,3 +134,78 @@ test("刷新不重抽：同日同领域得到同一份题", async ({ page }) => 
   await expectRound(page, 1);
   expect(await page.locator("h2").first().innerText()).toBe(firstStem);
 });
+
+/**
+ * 跳过第 5 题：不惩罚、不强制答完，直接结算，且分数只按前 4 题。
+ *
+ * 验收点同时覆盖漏斗口径：跳过不能记成 `answered`（单测已测存储层，
+ * 这里验证 UI 入口真的存在并能走到结算）。
+ */
+test("每日挑战：跳过第 5 题仍能结算，且分数不变", async ({ page }) => {
+  await runPublicQuestions(page);
+  await expectPracticePanel(page);
+
+  const before = await page.locator(".tabular.font-semibold.text-accent").first().innerText();
+
+  await page.getByRole("button", { name: /跳过这道加练题/ }).click();
+
+  await expect(page.getByText("影子对手")).toBeVisible();
+  await expect(page.getByText("加练题跳过了 · 不计分，也不影响排名")).toBeVisible();
+  await expect(page.getByText(/公共题答对 \d \/ 4 题/)).toBeVisible();
+  // 结算总分仍等于跳过前的分数（加练题从未计入）
+  await expect(page.locator(".tabular.text-4xl.font-bold.text-accent")).toHaveText(
+    before.replace(/\s*分$/, "")
+  );
+
+  // 漏斗：跳过只记 skipped，不记 answered。
+  const funnel = await page.evaluate(() => {
+    const key = Object.keys(window.localStorage).find((k) => k.startsWith("tongshi-ju.daily."));
+    return key ? JSON.parse(window.localStorage.getItem(key) ?? "null")?.practiceFunnel : null;
+  });
+  expect(funnel?.skipped).toBe(true);
+  expect(funnel?.answered).toBe(false);
+});
+
+/**
+ * NPC 点评的持久化与降级文案。
+ *
+ * 用 `page.route` 构造 200 + `degraded: true`（不依赖真实 AI），
+ * 断言降级文案可见；刷新后**先撤掉路由**，点评仍必须从当日会话读回。
+ */
+test("NPC 点评：降级文案可见，刷新后仍在", async ({ page }) => {
+  const commentary = "刷新后我还在：今天先补 gaming 的经典作品。";
+  await page.route("**/api/npc/coach", (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        commentary,
+        degraded: true,
+        degradedReason: "e2e 构造的降级",
+        rationale: "e2e 固定决策依据",
+        domainOrder: ["gaming", "tech"],
+        weights: { gaming: 1, tech: 0.5 },
+        provider: null,
+      }),
+    })
+  );
+
+  await finishDaily(page);
+
+  const panel = page.locator(".panel", { hasText: "老师 NPC" }).first();
+  await expect(panel).toBeVisible();
+  await expect(panel.getByText(commentary)).toBeVisible();
+  await expect(panel.getByText(/模型调用失败，已降级为确定性模板/)).toBeVisible();
+
+  const before = (await panel.innerText()).trim();
+
+  // 撤掉路由后刷新：锁定的已完成会话应直接读回点评，不再请求服务端。
+  await page.unroute("**/api/npc/coach");
+  await page.reload();
+
+  const after = page.locator(".panel", { hasText: "老师 NPC" }).first();
+  await expect(after).toBeVisible();
+  await expect(after.getByText(commentary)).toBeVisible();
+  await expect(after.getByText(/模型调用失败，已降级为确定性模板/)).toBeVisible();
+  expect((await after.innerText()).trim()).toBe(before);
+});

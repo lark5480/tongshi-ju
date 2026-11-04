@@ -23,7 +23,10 @@ export function toEpisode(params: {
   readonly event: AnswerEvent;
   readonly isNewDomain: boolean;
   readonly modelImportance?: number | null;
+  /** 模型重要度不可用 / 失败的原因（降级要留痕，不能静默）。 */
+  readonly importanceDegradedReason?: string;
 }): NpcEpisode {
+  const usedModel = params.modelImportance !== null && params.modelImportance !== undefined;
   const importance = computeImportance({
     event: params.event,
     isNewDomain: params.isNewDomain,
@@ -35,8 +38,18 @@ export function toEpisode(params: {
     topic: params.event.topic,
     difficulty: params.event.difficulty,
     correct: params.event.correct,
+    // 来源原样保留（旧事件没有该字段时不补写，读取方按 public 处理）。
+    ...(params.event.source ? { source: params.event.source } : {}),
     at: params.event.at,
     importance,
+    importanceSource: usedModel ? "model" : "rule",
+    importanceDegraded: !usedModel,
+    ...(!usedModel
+      ? {
+          importanceDegradedReason:
+            params.importanceDegradedReason ?? "未提供模型重要度，使用规则打分",
+        }
+      : {}),
     lastAccessedAt: params.event.at,
   };
 }

@@ -143,7 +143,7 @@ export default function DailyPage() {
                   </span>
                 ) : c.practiceCorrect === false ? (
                   <span className="text-dim">
-                    加练题答错了 · 不计分、不计排名，熟练度已记入错题本
+                    加练题答错了 · 不计分、不计排名，熟练度已记录（不写错题本）
                   </span>
                 ) : (
                   <span className="text-dim">加练题跳过了 · 不计分，也不影响排名</span>
@@ -331,7 +331,9 @@ export default function DailyPage() {
             你的加练题
           </div>
           {c.practiceReason && <p className="text-sm text-fg">{c.practiceReason}</p>}
-          <p className="text-xs text-dim">这道题不计分、不计排名，答对会写进熟练度。</p>
+          <p className="text-xs text-dim">
+            这道题不计分、不计排名，只更新熟练度（不写错题本）；不想做可以直接跳过。
+          </p>
         </div>
       )}
 
@@ -353,6 +355,12 @@ export default function DailyPage() {
         <Button block size="lg" onClick={c.next}>
           {c.index + 1 < c.questions.length ? "下一题" : "查看结算"}
           <ArrowRight size={16} aria-hidden />
+        </Button>
+      )}
+
+      {isPracticeQuestion && !c.submitted && (
+        <Button variant="ghost" block onClick={c.skipPractice}>
+          跳过这道加练题，直接结算
         </Button>
       )}
     </div>

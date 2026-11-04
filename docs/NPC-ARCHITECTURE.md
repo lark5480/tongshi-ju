@@ -1,7 +1,6 @@
 # NPC 引擎 · 架构与契约
 
-> **本文是 `lib/npc/` 的权威源**（冻结契约）。决策依据见
-> [`docs/decisions/01-NPC立项裁决清单.md`](decisions/01-NPC立项裁决清单.md)。
+> **本文是 `lib/npc/` 的权威源**（冻结契约）。
 > 产品需求见 [`docs/PRD.md`](docs/PRD.md) §NPC 章节。
 
 ---
@@ -26,16 +25,20 @@ lib/npc/
 │  ├─ retrieve.ts    三段式检索（recency × importance × relevance）
 │  ├─ policy.ts      选域权重 + 领域内选题排序（难度调节器核心）
 │  └─ commentary.ts  降级点评模板
-├─ narrator.ts       LLM 台词层（唯一调模型的地方之一）+ 降级编排
+├─ narrate.ts        LLM 台词层（唯一调模型的地方之一）+ 降级编排
 ├─ storage.ts        宿主接入层：读写 NPC 情景层（按用户分区）
 ├─ client.ts         浏览器侧：请求点评 / 记录事件（永不抛错）
-├─ index.ts          对外出口
-└─ app/api/npc/coach/route.ts   服务端路由（模型端点只在服务端）
+└─ index.ts          对外出口
 ```
+
+服务端路由在 `app/api/npc/`（不在 `lib/npc/` 内，避免把 Next 依赖带进纯函数内核）：
+
+- `app/api/npc/coach/route.ts` —— 点评（模型只在这里生成台词）；
+- `app/api/npc/importance/route.ts` —— 单题事件的重要度打分（模型不可用 → 200 + `degraded: true`）。
 
 **依赖方向（单向）**：
 ```
-types ← core ← narrator ← client / route
+types ← core ← narrate ← client / route
                   ↑
               storage（只读既有引擎数据）
 ```
@@ -55,7 +58,7 @@ types ← core ← narrator ← client / route
 | ③ | 重要度标度 **[1,10]**，两个来源同标度 | `core/importance.ts` | 改标度 = 改行为，须追加裁决 |
 | ④ | 领域权重口径 `weakness×0.5 + errorRate×0.3 + recency×0.2` | `core/policy.ts` | 同上 |
 | ⑤ | 前 4 题**全网同题**、逐题不变；NPC 只影响第 5 题（个人加练、不计分） | `core/practice.ts` + `hooks/useDailyChallenge.ts` | 红线：改前 4 题即破坏"全网同题" |
-| ⑥ | 降级契约：模型不可用/超时/失败 → 模板点评 + `degraded: true` + 原因 | `narrator.ts` | 不可静默降级 |
+| ⑥ | 降级契约：模型不可用/超时/失败 → 模板点评 + `degraded: true` + 原因 | `narrate.ts` | 不可静默降级 |
 
 ---
 
@@ -112,6 +115,17 @@ NPC 另存一份**单题事件流**（`npc-episodes` 存储键，按玩家名分
 
 容量上限 200 条（≈ 40 天），超出丢弃最旧的。
 
+条目上的两个来源标记（都是**只增不改**的可选字段）：
+
+- `source: "public" | "practice"` —— 公共题 / 第 5 题加练；旧条目缺省按 `public`；
+- `importanceSource: "model" | "rule"` + `importanceDegradedReason` ——
+  模型打分失败 / 未配置时保持规则分，并留下降级原因（不静默降级）。
+
+重要度采用**先同步落盘、模型回来再升级**：作答当下先按规则分写一条
+（用户立刻关页也不丢事件），模型返回后按 `questionId + at` 定位同一条目
+就地升级；条目已被容量上限淘汰时**不重建**（避免复活过期记忆），
+模型失败则保持规则分、只更新降级原因。
+
 ---
 
 ## 4. 检索评分
@@ -143,7 +157,7 @@ score = recency + importance + relevance        （三项等权）
 ```
 weights[domain] = weakness×0.5 + errorRate×0.3 + recency×0.2     （归一到 [0,1]）
   weakness = 1 - clamp01(mastery / MASTERY_FULL_MARKS)   ← mastery 是净答对数，满星刻度 10
-domainOrder     = 按权重降序（同权重用种子稳定排序）
+domainOrder     = 按权重降序（同权重用确定性 tie-break：hash(seed, domain) → id 字典序）
 questionOrder   = 领域内：错题优先 → 低熟练度知识点优先 → 同分用种子稳定排序
 ```
 
@@ -159,8 +173,9 @@ questionOrder   = 领域内：错题优先 → 低熟练度知识点优先 → �
 - **第 5 题**：`lib/npc/core/practice.ts` 的 `pickPracticeQuestion` 按 `domainOrder`
   选最弱域，域内按 `topicMastery` 选最生疏知识点，并**排除前 4 题已出现的题**；
 - **计分**：引擎只结算前 4 题（`PUBLIC_DAILY_COUNT` / `settlePublicAnswers`）。
-  第 5 题不计分、不计排名、不影响 duel/PK；作答仍写 `mastery`，
-  情景事件标注 `source: "practice"`，便于以后按曝光统计覆盖。
+  第 5 题不计分、不计排名、不影响 duel/PK；**只写 `mastery`，不写错题本**
+  （`recordAttempt({ wrong: false })`），情景事件标注 `source: "practice"`
+  并随条目落盘（历史条目无该字段 → 读取方按 `public` 处理，不回溯改写）。
 
 **接线位置**（`hooks/useDailyChallenge.ts`）：先 `buildDailySet` 取公共 5 题，
 前 4 题原样使用；第 5 题在有 NPC 事实时由 `pickPracticeQuestion` 替换。
@@ -170,11 +185,13 @@ questionOrder   = 领域内：错题优先 → 低熟练度知识点优先 → �
 
 **口径版本与埋点（v2 起）**：历史记录带 `scoringVersion`（缺失 = v1 旧版 5 题计分，
 新记录 = v2 4 题计分）；旧记录**不重算、不补齐"第 5 题"归属**，生涯累计 / 段位 /
-影子对比只比同版本。加练题在当日 `DailySession.practiceFunnel` 记三态
-（展示 / 作答 / 正确）与结算曝光；`getPracticeFunnelSummary(fromDate, toDate)`
-按日期区间返回展示数、作答率、正确率（仅本地，无远端上报）。
+影子对比只比同版本。加练题在当日 `DailySession.practiceFunnel` 记四态
+（展示 / 作答 / 正确 / **跳过**）与结算曝光；`getPracticeFunnelSummary(fromDate, toDate)`
+按日期区间返回展示数、作答率、正确率、跳过率（仅本地，无远端上报）。
+**跳过与作答互斥**：跳过不记 `answered`（否则会把没做的人算进作答率、
+又拉低正确率），只记 `skipped`；汇总据此单列跳过率。
 答对时结算页给「你的 <域> 熟练度 +1」的弱反馈，**不改分数 / 排名 / 连击**；
-跳过只给不打扰提示，不惩罚。
+跳过只给不打扰提示，不惩罚，也不会强制答完。
 
 **出题可复现靠 PRNG，不靠模型**（裁决 14）：模型只决定"说什么"。
 确定性模板路径（无模型 / 降级）在**同 seed + 同答题序列**下可复现；
@@ -192,6 +209,7 @@ questionOrder   = 领域内：错题优先 → 低熟练度知识点优先 → �
 | 模型返回非法内容 | 同上 |
 | 点评服务 HTTP 不可用 | 客户端本地模板兜底 |
 | 客户端网络失败 | 客户端本地模板兜底 |
+| 重要度模型打分不可用 / 失败 | 保持规则分；条目记 `importanceSource: "rule"` + `importanceDegradedReason`（200，不阻塞答题） |
 
 **降级后 NPC 仍然完整可用**：能给出领域排序、能选第 5 题、能给基于事实的真实诊断 ——
 只是措辞机械。**降级信息必须显式出现在报告与界面上**。
@@ -218,7 +236,7 @@ questionOrder   = 领域内：错题优先 → 低熟练度知识点优先 → �
 
 | 边界 | 现状 |
 | --- | --- |
-| 真实模型接入 | 客户端 → `/api/npc/coach` → 服务端 `getProvider()`；未配置时走模板 |
+| 真实模型接入 | 客户端 → `/api/npc/coach`（点评）/ `/api/npc/importance`（重要度）→ 服务端 `getProvider()`；未配置时走模板 / 规则分 |
 | 自由意图分类 | **未做** —— 通识局没有玩家自由输入入口（NPC 不是聊天机器人） |
 | 反思机制 | **未做**（裁决 11）—— 拟人度增强，不是本项目的差异化 |
 | 向量检索 | **不做**（裁决 7） |

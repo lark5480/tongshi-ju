@@ -59,6 +59,7 @@ import {
   getWrongEntries,
   pushHistory,
   recordAttempt,
+  saveDailyNpc,
   saveDailySession,
   saveGhost,
   saveProfile,
@@ -134,6 +135,8 @@ export interface DailyChallengeState {
   practiceReason: string | null;
   /** 加练题是否答对（未作答为 `null`）。 */
   practiceCorrect: boolean | null;
+  /** 加练题是否被主动跳过（跳过不惩罚，也不记作答）。 */
+  practiceSkipped: boolean;
   start: () => void;
   toggleOption: (option: string) => void;
   /**
@@ -144,6 +147,13 @@ export interface DailyChallengeState {
    */
   submit: (answer?: string | string[]) => void;
   next: () => void;
+  /**
+   * 跳过第 5 题加练，直接进入结算。
+   *
+   * 仅在「当前是加练题且尚未提交」时有效；跳过不惩罚、不计分，
+   * 漏斗里记 `skipped` 而不是 `answered`。
+   */
+  skipPractice: () => void;
   reset: () => void;
 }
 
@@ -171,6 +181,7 @@ export function useDailyChallenge(): DailyChallengeState {
   const [npc, setNpc] = useState<NpcDecision | null>(null);
   const [practiceReason, setPracticeReason] = useState<string | null>(null);
   const [practiceCorrect, setPracticeCorrect] = useState<boolean | null>(null);
+  const [practiceSkipped, setPracticeSkipped] = useState(false);
 
   /** 本题开始时刻（本地，仅用于显示与速度分）。 */
   const startedAtRef = useRef<number>(0);
@@ -226,6 +237,57 @@ export function useDailyChallenge(): DailyChallengeState {
         // 影子只展示同口径的基准：旧口径（5 题）记录不与 4 题成绩混比。
         setGhost(getComparableGhost(ghostKey(useDomains)));
 
+        /** 用当前本地事实构造 NPC 上下文；失败返回 null（第 5 题回落公共题）。 */
+        const makeContext = (pool: Partial<Record<DomainId, Question[]>>): NpcContext | null => {
+          try {
+            return buildCoachContext({
+              userId: profile.name,
+              domains: useDomains,
+              pool,
+              mastery: getMastery(),
+              wrongEntries: getWrongEntries().map((e) => ({
+                domain: e.domain,
+                wrongCount: e.wrongCount,
+              })),
+              history: getHistory().map((h) => ({
+                domains: h.domains,
+                correct: h.correct,
+                total: h.total,
+              })),
+              seed: dailySeed(date, useDomains),
+              now: Date.now(),
+            });
+          } catch (error) {
+            console.warn("[daily] NPC 上下文不可用，第 5 题回落公共题：", error);
+            return null;
+          }
+        };
+
+        /**
+         * 请求点评并**写回当日会话**。
+         *
+         * 只 setNpc 不落盘的话，刷新 / 再次进入锁定会话点评就会消失
+         * （含 `degraded` 与降级原因）。
+         */
+        const requestNpc = async (coachContext: NpcContext | null) => {
+          if (!coachContext) return;
+          try {
+            const result = await requestCoach({
+              userId: profile.name,
+              domains: useDomains,
+              facts: coachContext.facts,
+              episodes: coachContext.episodes,
+              seed: dailySeed(date, useDomains),
+              now: coachContext.now,
+            });
+            if (!cancelled) setNpc(result.decision);
+            saveDailyNpc(date, result.decision);
+          } catch (error) {
+            // NPC 是增强，不是主链路 —— 失败静默降级即可
+            console.warn("[daily] NPC 点评不可用：", error);
+          }
+        };
+
         if (locked) {
           const pool = await loadQuestionPool(useDomains);
           const byId = new Map<string, Question>();
@@ -235,6 +297,9 @@ export function useDailyChallenge(): DailyChallengeState {
           const qs = locked.questionIds.map((id) => byId.get(id)).filter(Boolean) as Question[];
           if (qs.length > 0) {
             setQuestions(qs);
+            // 点评随会话落盘：锁定会话再次进入时先读回，缺失（旧会话）再补请求。
+            setNpc(locked.npc ?? null);
+            setPracticeSkipped(locked.practiceSkipped ?? false);
             if (locked.done) {
               setFinished(true);
               setScore(locked.score ?? 0);
@@ -252,6 +317,7 @@ export function useDailyChallenge(): DailyChallengeState {
               setIndex(0);
             }
             setLoading(false);
+            if (!locked.npc) void requestNpc(makeContext(pool));
             return;
           }
         }
@@ -267,28 +333,7 @@ export function useDailyChallenge(): DailyChallengeState {
         //
         // 首次使用（没有任何答题事实）或上下文构造失败 → 不选加练题，
         // 第 5 题回落到公共题的原第 5 题，行为与改动前一致。
-        let npcContext: NpcContext | null = null;
-        try {
-          npcContext = buildCoachContext({
-            userId: profile.name,
-            domains: useDomains,
-            pool,
-            mastery: getMastery(),
-            wrongEntries: getWrongEntries().map((e) => ({
-              domain: e.domain,
-              wrongCount: e.wrongCount,
-            })),
-            history: getHistory().map((h) => ({
-              domains: h.domains,
-              correct: h.correct,
-              total: h.total,
-            })),
-            seed: dailySeed(date, useDomains),
-            now: Date.now(),
-          });
-        } catch (error) {
-          console.warn("[daily] NPC 上下文不可用，第 5 题回落公共题：", error);
-        }
+        const npcContext = makeContext(pool);
 
         const publicPicks = buildDailySet({
           dateKey: date,
@@ -335,6 +380,7 @@ export function useDailyChallenge(): DailyChallengeState {
                   shown: true,
                   answered: false,
                   correct: false,
+                  skipped: false,
                   resultSeen: false,
                 } satisfies PracticeFunnel,
               }
@@ -346,24 +392,8 @@ export function useDailyChallenge(): DailyChallengeState {
         // ---- 老师 NPC：拿到点评（模型不可用时由服务端降级为模板）----
         //
         // 选题已经用上面这份上下文算好；这里只补「说什么」。
-        const coachContext = npcContext;
-        void (async () => {
-          if (!coachContext) return;
-          try {
-            const result = await requestCoach({
-              userId: profile.name,
-              domains: useDomains,
-              facts: coachContext.facts,
-              episodes: coachContext.episodes,
-              seed: dailySeed(date, useDomains),
-              now: coachContext.now,
-            });
-            if (!cancelled) setNpc(result.decision);
-          } catch (error) {
-            // NPC 是增强，不是主链路 —— 失败静默降级即可
-            console.warn("[daily] NPC 点评不可用：", error);
-          }
-        })();
+        // 点评结果会写回当日会话，刷新后仍能显示。
+        void requestNpc(npcContext);
       } catch (e) {
         console.error("[daily] 初始化失败：", e);
         if (!cancelled) {
@@ -469,6 +499,8 @@ export function useDailyChallenge(): DailyChallengeState {
         domain: current.domain,
         topic: current.topic,
         correct,
+        // 第 5 题加练只写熟练度，不写错题本（PRD 口径）。
+        ...(isPractice ? { wrong: false } : {}),
       });
 
       // ---- 加练题埋点：已作答 / 作答正确（只写当日会话，不影响分数与排名） ----
@@ -498,7 +530,7 @@ export function useDailyChallenge(): DailyChallengeState {
           seed: dailySeed(date, domains.length > 0 ? domains : [current.domain]),
           now: Date.now(),
         });
-        recordCoachEvent({
+        void recordCoachEvent({
           userId: getProfile().name,
           facts: npcContext.facts,
           // 连击必须传**本局真实值**：错题本 streak 毕业阈值是 2，最大只有 1，
@@ -522,6 +554,100 @@ export function useDailyChallenge(): DailyChallengeState {
     [current, picked, submitted, combo, index, date]
   );
 
+  /**
+   * 结算本局：4+1 分轨只按**公共题**（前 4 题）计分、计连击、计答对数。
+   *
+   * 第 5 题即使答对也不进 score / maxCombo / history，只写熟练度
+   * （见 `recordAttempt` 的 `wrong: false`）。
+   *
+   * `skippedPractice`：用户主动跳过第 5 题时为 true —— 不计作答、不惩罚，
+   * 漏斗只记 `skipped`（与 `answered` 互斥）。
+   */
+  const finish = useCallback(
+    (skippedPractice: boolean) => {
+      const settled = settlePublicAnswers(records);
+      const publicQuestions = questions.slice(0, PUBLIC_DAILY_COUNT);
+      const max = maxScore(publicQuestions.map((q) => q.difficulty));
+      const rating = starRating(settled.score, max);
+      const finalScore = settled.score;
+      const correctCount = settled.correct;
+      const publicMaxCombo = settled.maxCombo;
+      const practiceRecord = records.find((r) => r.practice);
+      // 加练题埋点：展示 / 作答 / 正确 / 跳过；结算页曝光由页面调用
+      // markPracticeResultSeen 补写。跳过绝不能记成 answered。
+      const practiceFunnel: PracticeFunnel = {
+        shown: questions.length > PUBLIC_DAILY_COUNT,
+        answered: practiceRecord !== undefined,
+        correct: practiceRecord?.correct ?? false,
+        skipped: skippedPractice && practiceRecord === undefined,
+        resultSeen: false,
+      };
+      setStars(rating);
+      setFinished(true);
+
+      // ---- 影子对手：用本局成绩刷新"过去的自己" ----
+      // 对比的是**本局开始前**的影子：先算结论，再更新影子，否则等于自己跟自己比。
+      // 只取同口径影子：旧口径（5 题）的最高分不能当 4 题成绩的基准。
+      const key = ghostKey(domains);
+      const prevGhost = getComparableGhost(key);
+      const totalElapsed = records
+        .filter((r) => !r.practice)
+        .reduce((sum, r) => sum + r.elapsed, 0);
+      saveGhost(
+        updateGhost(prevGhost, {
+          key,
+          score: finalScore,
+          correct: correctCount,
+          date,
+          elapsed: totalElapsed,
+          scoringVersion: SCORING_VERSION,
+        })
+      );
+      setVerdict(compareWithGhost(finalScore, prevGhost));
+
+      // ---- 生涯累计（段位用，不受 30 场历史窗口影响） ----
+      // 按口径分桶：旧数据留在 v1，不参与 v2 段位。
+      bumpLifetimeStats(
+        { correct: correctCount, stars: rating, maxCombo: publicMaxCombo },
+        SCORING_VERSION
+      );
+
+      saveDailySession({
+        date,
+        domains,
+        questionIds: questions.map((q) => q.id),
+        done: true,
+        score: finalScore,
+        correct: correctCount,
+        stars: rating,
+        maxCombo: publicMaxCombo,
+        mode,
+        scoringVersion: SCORING_VERSION,
+        practiceFunnel,
+        ...(practiceReason ? { practiceReason } : {}),
+        ...(practiceRecord ? { practiceCorrect: practiceRecord.correct } : {}),
+        ...(skippedPractice && practiceRecord === undefined ? { practiceSkipped: true } : {}),
+        // 结算会整体覆盖会话 —— 必须把已到手的点评一并带上，否则刷新后点评消失。
+        ...(npc ? { npc } : {}),
+      });
+      bumpStreak(date);
+      pushHistory({
+        date,
+        domains,
+        score: finalScore,
+        correct: correctCount,
+        // 榜单口径：只算公共题，题数与得分同源。
+        total: publicQuestions.length,
+        stars: rating,
+        maxCombo: publicMaxCombo,
+        mode: "daily",
+        // 新记录标 v2；旧记录没有该字段，按 v1 处理，不重算。
+        scoringVersion: SCORING_VERSION,
+      });
+    },
+    [records, questions, date, domains, mode, practiceReason, npc]
+  );
+
   /** 进入下一题；最后一题则结算。 */
   const next = useCallback(() => {
     if (!submitted) return;
@@ -531,81 +657,23 @@ export function useDailyChallenge(): DailyChallengeState {
       setSubmitted(false);
       return;
     }
-    // 结算：4+1 分轨只按**公共题**（前 4 题）计分、计连击、计答对数。
-    // 第 5 题即使答对也不进 score / maxCombo / history，只写熟练度。
-    const settled = settlePublicAnswers(records);
-    const publicQuestions = questions.slice(0, PUBLIC_DAILY_COUNT);
-    const max = maxScore(publicQuestions.map((q) => q.difficulty));
-    const rating = starRating(settled.score, max);
-    const finalScore = settled.score;
-    const correctCount = settled.correct;
-    const publicMaxCombo = settled.maxCombo;
-    const practiceRecord = records.find((r) => r.practice);
-    // 加练题埋点：展示 / 作答 / 正确；结算页曝光由页面调用 markPracticeResultSeen 补写。
-    const practiceFunnel: PracticeFunnel = {
-      shown: questions.length > PUBLIC_DAILY_COUNT,
-      answered: practiceRecord !== undefined,
-      correct: practiceRecord?.correct ?? false,
-      resultSeen: false,
-    };
-    setStars(rating);
-    setFinished(true);
+    finish(false);
+  }, [submitted, index, questions.length, finish]);
 
-    // ---- 影子对手：用本局成绩刷新"过去的自己" ----
-    // 对比的是**本局开始前**的影子：先算结论，再更新影子，否则等于自己跟自己比。
-    // 只取同口径影子：旧口径（5 题）的最高分不能当 4 题成绩的基准。
-    const key = ghostKey(domains);
-    const prevGhost = getComparableGhost(key);
-    const totalElapsed = records.filter((r) => !r.practice).reduce((sum, r) => sum + r.elapsed, 0);
-    saveGhost(
-      updateGhost(prevGhost, {
-        key,
-        score: finalScore,
-        correct: correctCount,
-        date,
-        elapsed: totalElapsed,
-        scoringVersion: SCORING_VERSION,
-      })
-    );
-    setVerdict(compareWithGhost(finalScore, prevGhost));
-
-    // ---- 生涯累计（段位用，不受 30 场历史窗口影响） ----
-    // 按口径分桶：旧数据留在 v1，不参与 v2 段位。
-    bumpLifetimeStats(
-      { correct: correctCount, stars: rating, maxCombo: publicMaxCombo },
-      SCORING_VERSION
-    );
-
-    saveDailySession({
-      date,
-      domains,
-      questionIds: questions.map((q) => q.id),
-      done: true,
-      score: finalScore,
-      correct: correctCount,
-      stars: rating,
-      maxCombo: publicMaxCombo,
-      mode,
-      scoringVersion: SCORING_VERSION,
-      practiceFunnel,
-      ...(practiceReason ? { practiceReason } : {}),
-      ...(practiceRecord ? { practiceCorrect: practiceRecord.correct } : {}),
-    });
-    bumpStreak(date);
-    pushHistory({
-      date,
-      domains,
-      score: finalScore,
-      correct: correctCount,
-      // 榜单口径：只算公共题，题数与得分同源。
-      total: publicQuestions.length,
-      stars: rating,
-      maxCombo: publicMaxCombo,
-      mode: "daily",
-      // 新记录标 v2；旧记录没有该字段，按 v1 处理，不重算。
-      scoringVersion: SCORING_VERSION,
-    });
-  }, [submitted, index, questions, records, date, domains, mode, practiceReason]);
+  /**
+   * 跳过第 5 题加练：不惩罚、不强制答完，直接结算。
+   *
+   * 只允许在「当前正是加练题且尚未提交」时调用 —— 其余时刻一律无操作，
+   * 避免把公共题也跳过去（那会破坏 4 题计分口径）。
+   */
+  const skipPractice = useCallback(() => {
+    if (finished || submitted) return;
+    if (index !== PUBLIC_DAILY_COUNT || !questions[index]) return;
+    updatePracticeFunnel(date, { skipped: true, answered: false, correct: false });
+    setPracticeSkipped(true);
+    setPracticeCorrect(null);
+    finish(true);
+  }, [finished, submitted, index, questions, date, finish]);
 
   /** 多选题：切换选项暂存；单选/判断题：直接提交。 */
   const toggleOption = useCallback(
@@ -637,6 +705,7 @@ export function useDailyChallenge(): DailyChallengeState {
     setFinished(false);
     setStars(0);
     setPracticeCorrect(null);
+    setPracticeSkipped(false);
   }, []);
 
   return {
@@ -662,10 +731,12 @@ export function useDailyChallenge(): DailyChallengeState {
     npc,
     practiceReason,
     practiceCorrect,
+    practiceSkipped,
     start: reset,
     toggleOption,
     submit,
     next,
+    skipPractice,
     reset,
   };
 }
