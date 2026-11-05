@@ -11,8 +11,9 @@
 
 import type { DomainId } from "@/types";
 
-import type { NpcContext, NpcDecision } from "../types";
+import type { NpcContext, NpcDecision, NpcPromise } from "../types";
 import { domainName } from "@/content/domains";
+import { formatPromiseLine } from "./branch";
 import { MASTERY_FULL_MARKS, rankDomains } from "./policy";
 
 /**
@@ -47,7 +48,7 @@ export function resolveCommentaryStatus(
  */
 export function buildCommentary(context: NpcContext): string {
   const domain = pickWeakestDomain(context);
-  if (!domain) return "今天没有可点评的领域，先去答几道题吧。";
+  if (!domain) return withPromise("今天没有可点评的领域，先去答几道题吧。", context.promise);
 
   const attempts = context.facts.attemptCounts[domain] ?? 0;
   const wrongs = context.facts.wrongCounts[domain] ?? 0;
@@ -56,7 +57,10 @@ export function buildCommentary(context: NpcContext): string {
   const label = domainName(domain);
 
   if (attempts === 0) {
-    return `「${label}」你还没碰过。今天先从它开始 —— 新领域的记忆最值钱。`;
+    return withPromise(
+      `「${label}」你还没碰过。今天先从它开始 —— 新领域的记忆最值钱。`,
+      context.promise
+    );
   }
 
   const parts: string[] = [];
@@ -78,7 +82,17 @@ export function buildCommentary(context: NpcContext): string {
     parts.push("熟练度不错，可以往后放");
   }
 
-  return parts.join("，") + "。";
+  return withPromise(parts.join("，") + "。", context.promise);
+}
+
+/**
+ * 把上次结算的承诺自然接到点评末尾。
+ *
+ * 无承诺时**逐字返回原文**，旧行为与旧测试不受影响。
+ */
+function withPromise(text: string, promise?: NpcPromise): string {
+  if (!promise) return text;
+  return `${text}${formatPromiseLine(promise)}，我看看这次有没有起色。`;
 }
 
 /**

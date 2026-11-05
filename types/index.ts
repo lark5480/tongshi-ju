@@ -350,6 +350,41 @@ export interface PracticeFunnel {
   resultSeen: boolean;
 }
 
+/** 结算后叙事分支的三个固定意图。 */
+export type BranchOptionId = "continue-weak" | "switch-easy" | "follow-teacher";
+
+/** 结算后选择生成的两步行动计划（只承诺策略，不写死次日具体域）。 */
+export interface DailyPlan {
+  strategy: BranchOptionId;
+  title: string;
+  /** 固定 2 条，玩家可执行的下一步。 */
+  steps: readonly string[];
+  /** 生成计划时今天指向的域 / 知识点；次日仅作加权，不在当日集合则忽略。 */
+  targetDomain?: DomainId;
+  targetTopic?: string;
+}
+
+/**
+ * 玩家在结算页做出的叙事选择。
+ *
+ * 只影响台词、计划与次日第 5 题的选题策略；不进入前 4 题、计分、duel。
+ * 一天一次、不可改；旧会话缺字段即未选择。
+ */
+export interface DailyChoice {
+  option: BranchOptionId;
+  /** 玩家看到的选项文案（固定策略名，不含具体域）。 */
+  label: string;
+  /** 选择指向的领域；「换个轻松题型」等降级选项可缺省。 */
+  domain?: DomainId;
+  chosenAt: number;
+  /** 老师回应；新选择即时模板，旧数据可能是模型台词。 */
+  reply: string;
+  replyStatus: "template" | "pending" | "model" | "degraded";
+  degradedReason?: string;
+  /** 两步行动清单；旧数据缺省时读取方生成通用计划。 */
+  plan?: DailyPlan;
+}
+
 /** 每日挑战的锁定结果。 */
 export interface DailySession {
   date: string;
@@ -381,4 +416,11 @@ export interface DailySession {
    * 旧会话没有该字段 → 读取为 `undefined`，不影响任何既有逻辑。
    */
   npc?: NpcDecision;
+  /**
+   * 结算后叙事分支的选择与老师回应。
+   *
+   * 与 `npc` 一样随会话落盘；旧会话没有该字段 → 未选择。
+   * 次日只通过 `getRecentDailyChoice` 读取 7 天内的最近一次。
+   */
+  choice?: DailyChoice;
 }

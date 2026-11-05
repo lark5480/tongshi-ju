@@ -169,6 +169,8 @@ submit(option);                            // ✅ 不再 setTimeout
 10. `/wrong` 有到期错题 → 「开始复习」→ 独立练习 → 完成后该题不再待复习；
     （`practice.spec.ts`；只断言流程与队列清空，不断言具体对错）
 11. 360px 窄屏无横向溢出 + 命中区 ≥44px；（`responsive.spec.ts`，8 条路由 + 底线尺寸）
+12. `/daily` 结算后三选一 → 计划即时出现、刷新仍在、次日回执；
+    答题阶段不发 coach，结算后只发一次；（`branch.spec.ts`，含 360px 选择卡）
 
 > 仍要人看的：视觉层级、文案语气（[`design/ui-system.md`](design/ui-system.md) §5）、
 > 动效是否干扰节奏 —— 这些没有可断言的判据，脚本装不出来。

@@ -71,6 +71,9 @@ Next.js 14 (App Router) · React 18 · TypeScript 5.5 · Tailwind 3 · SSE
    `lib/engine/scoring.ts`（界面与测试共用）。引擎契约见 [`docs/NPC-ARCHITECTURE.md`](docs/NPC-ARCHITECTURE.md)。
 2. **不改前 4 题（全网同题）** —— 前 4 题必须**全网一致**（同日期 + 同领域集合 → 同一份题），
    否则红榜与同题 PK 失去意义。NPC 只允许影响第 5 题（个人加练、不计分，见 §2.1）。
+   **叙事分支不改变这条约束**：结算后的三选一只写台词与次日记忆，
+   承诺可影响第 5 题的**选题策略**（`focus`），但不得传入 `computeDomainWeights`、
+   前 4 题或计分逻辑。
 3. **不静默降级** —— 模型不可用 / 超时 / 失败 → 模板点评 + `degraded: true` + 原因，
    且降级信息要**显式出现在界面上**。悄悄换个策略假装无事发生，等于报告里的降级信息是假的。
 

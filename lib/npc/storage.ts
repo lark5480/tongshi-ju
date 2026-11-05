@@ -81,6 +81,8 @@ export function buildNpcContext(params: {
   readonly episodes: readonly NpcEpisode[];
   readonly seed: number;
   readonly now: number;
+  /** 上一次结算的叙事承诺（可选，只进入台词）。 */
+  readonly promise?: NpcContext["promise"];
 }): NpcContext {
   const attemptCounts: Record<string, number> = {};
   const wrongCounts: Record<string, number> = {};
@@ -142,6 +144,7 @@ export function buildNpcContext(params: {
     episodes: params.episodes,
     seed: params.seed,
     now: params.now,
+    ...(params.promise ? { promise: params.promise } : {}),
   };
 }
 

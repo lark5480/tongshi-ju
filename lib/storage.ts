@@ -9,6 +9,7 @@
  */
 
 import type {
+  DailyChoice,
   DailySession,
   DomainId,
   HistoryEntry,
@@ -150,6 +151,37 @@ export function saveDailyNpc(date: string, npc: DailySession["npc"]): void {
   const session = getDailySession(date);
   if (!session) return;
   saveDailySession({ ...session, ...(npc ? { npc } : {}) });
+}
+
+/**
+ * 把结算后的叙事选择写回当日会话。
+ *
+ * 与 `saveDailyNpc` 同一模式：异步拿到模型回应后读改写，刷新不丢；
+ * 当日会话不存在时静默忽略。
+ */
+export function saveDailyChoice(date: string, choice: DailyChoice): void {
+  const session = getDailySession(date);
+  if (!session) return;
+  saveDailySession({ ...session, choice });
+}
+
+/**
+ * 读取今天之前最近一次叙事选择（默认 7 天内）。
+ *
+ * 单源：不另建 promise 键，直接扫之前的 `daily.<date>`；
+ * 只取 `label`/`option`，`replyStatus=pending` 也算（文案已确定）。
+ */
+export function getRecentDailyChoice(
+  beforeDate: string,
+  withinDays = 7
+): { date: string; choice: DailyChoice } | null {
+  const days = Math.min(30, Math.max(1, Math.trunc(withinDays)));
+  for (let offset = 1; offset <= days; offset++) {
+    const date = shiftDay(beforeDate, -offset);
+    const choice = getDailySession(date)?.choice;
+    if (choice) return { date, choice };
+  }
+  return null;
 }
 
 // ---------------------------------------------------------------- 加练题埋点

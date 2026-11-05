@@ -22,8 +22,9 @@ import type { DomainId, Question } from "@/types";
 
 import { readJson, writeJson } from "@/lib/storage";
 
-import { buildCommentary } from "./core/commentary";
+import { buildCommentary, pickWeakestDomain } from "./core/commentary";
 import { isNewDomain } from "./core/facts";
+import { selectMemories } from "./core/memory";
 import { decideNpc } from "./core/policy";
 import {
   buildNpcContext,
@@ -33,34 +34,32 @@ import {
   updateEpisodeImportance,
   type StoredEpisode,
 } from "./storage";
-import type { AnswerEvent, NpcContext, NpcDecision, NpcEpisode, NpcFacts } from "./types";
+import type {
+  AnswerEvent,
+  DecisionMemory,
+  NpcContext,
+  NpcDecision,
+  NpcEpisode,
+  NpcFacts,
+  NpcPromise,
+} from "./types";
 
 /**
- * 上一次点评是否证明「模型可用」。
+ * 重要度模型的三态。
  *
- * 只看**服务端是否配置了 provider**，与这次点评是否降级无关：reasoning 模型
- * 可能偶发空正文导致点评降级，但重要度接口本身仍然可用。
- * 只有真的没配置模型时，才省掉为每题的重要度打分请求。
+ * 删掉开局点评后，没有 coach 响应可以先告诉我们 provider 是否存在；
+ * 因此第一次作答探一次 importance：成功 → available，失败 → unavailable（失败即停，
+ * 不每题重试）。`unknown` 期间的条目先按规则分落盘，探测成功后再就地升级。
  */
-let modelAvailable = false;
+type ModelState = "unknown" | "available" | "unavailable";
 
-/**
- * provider 是否存在：`null` 表示还没拿到服务端结论（请求失败）。
- *
- * 仅用于区分降级原因 —— 配置了但调用失败 ≠ 没配置端点。
- */
-let providerConfigured: boolean | null = null;
+let modelState: ModelState = "unknown";
+let unavailableReason = "模型重要度尚未探测，先按规则分落盘";
 
-/**
- * 没有可用模型时的降级原因。
- *
- * 只有服务端明确返回 `provider: null` 才能说「未配置」；
- * 其余情况（请求失败 / 拿不到结论）都应写成调用不可用。
- */
-function modelUnavailableReason(): string {
-  return providerConfigured === false
-    ? "未配置模型端点，重要度使用规则打分"
-    : "点评模型调用失败，重要度先按规则分落盘";
+/** 测试用：重置模块级模型状态，避免用例之间串扰。 */
+export function resetNpcModelStateForTest(): void {
+  modelState = "unknown";
+  unavailableReason = "模型重要度尚未探测，先按规则分落盘";
 }
 
 /**
@@ -110,6 +109,8 @@ export async function requestCoach(params: {
   readonly episodes: readonly NpcEpisode[];
   readonly seed: number;
   readonly now: number;
+  /** 上一次结算的叙事承诺（可选，只进入台词）。 */
+  readonly promise?: NpcPromise;
 }): Promise<{
   readonly decision: NpcDecision;
   readonly degraded: boolean;
@@ -123,6 +124,7 @@ export async function requestCoach(params: {
     episodes: params.episodes,
     seed: params.seed,
     now: params.now,
+    ...(params.promise ? { promise: params.promise } : {}),
   };
 
   try {
@@ -136,13 +138,13 @@ export async function requestCoach(params: {
         episodes: params.episodes,
         seed: params.seed,
         now: params.now,
+        ...(params.promise ? { promise: params.promise } : {}),
       }),
     });
 
     if (!res.ok) {
       // 服务端不可用 → 本地模板兜底。
-      // 注意：这里**不重置** modelAvailable —— HTTP 失败拿不到 provider 结论，
-      // 不能据此判定「没有配置模型」。
+      // 点评 HTTP 失败拿不到 provider 结论：保持模型状态不变（未知就保持未知）。
       const reason = `点评服务不可用（HTTP ${res.status}）`;
       return {
         decision: decideNpc({
@@ -163,16 +165,22 @@ export async function requestCoach(params: {
       rationale?: string;
       domainOrder?: DomainId[];
       weights?: Record<string, number>;
+      /** 本次点评参考的记忆；旧服务端没有该字段 → 本地回退。 */
+      memories?: unknown;
       /** 服务端实际使用的 provider 名；null 表示未配置模型。 */
       provider?: string | null;
     };
 
     const commentary = typeof data.commentary === "string" ? data.commentary : "";
     const degraded = data.degraded === true;
+    // undefined（旧服务端）/ 非法结构 → 本地按同一纯函数回退；空数组是权威结果，尊重它。
+    const parsedMemories = parseMemories(data.memories);
+    const memories = parsedMemories ?? localMemories(context);
     // 只看 provider 是否存在：点评降级（如 reasoning 模型偶发空正文）
     // 不代表重要度接口不可用。
-    providerConfigured = typeof data.provider === "string" && data.provider.length > 0;
-    modelAvailable = providerConfigured;
+    const providerOk = typeof data.provider === "string" && data.provider.length > 0;
+    modelState = providerOk ? "available" : "unavailable";
+    if (!providerOk) unavailableReason = "未配置模型端点，重要度使用规则打分";
 
     return {
       decision: {
@@ -185,6 +193,7 @@ export async function requestCoach(params: {
         commentaryStatus: degraded ? "degraded" : "model",
         ...(data.degradedReason ? { degradedReason: data.degradedReason } : {}),
         rationale: data.rationale ?? "",
+        memories,
       },
       degraded,
       ...(data.degradedReason ? { degradedReason: data.degradedReason } : {}),
@@ -215,10 +224,10 @@ async function requestImportanceScore(params: {
   readonly event: AnswerEvent;
   readonly isNewDomain: boolean;
 }): Promise<{ importance: number | null; degradedReason?: string }> {
-  if (!modelAvailable) {
+  if (modelState === "unavailable") {
     return {
       importance: null,
-      degradedReason: modelUnavailableReason(),
+      degradedReason: unavailableReason,
     };
   }
   try {
@@ -228,7 +237,9 @@ async function requestImportanceScore(params: {
       body: JSON.stringify({ event: params.event, isNewDomain: params.isNewDomain }),
     });
     if (!res.ok) {
-      return { importance: null, degradedReason: `重要度服务不可用（HTTP ${res.status}）` };
+      modelState = "unavailable";
+      unavailableReason = `重要度服务不可用（HTTP ${res.status}）`;
+      return { importance: null, degradedReason: unavailableReason };
     }
     const data = (await res.json()) as {
       importance?: number | null;
@@ -236,17 +247,19 @@ async function requestImportanceScore(params: {
       degradedReason?: string | null;
     };
     if (typeof data.importance === "number" && Number.isFinite(data.importance)) {
+      modelState = "available";
       return { importance: data.importance };
     }
+    modelState = "unavailable";
+    unavailableReason = data.degradedReason ?? "重要度服务未返回可用分数";
     return {
       importance: null,
-      degradedReason: data.degradedReason ?? "重要度服务未返回可用分数",
+      degradedReason: unavailableReason,
     };
   } catch (error) {
-    return {
-      importance: null,
-      degradedReason: `重要度请求失败：${error instanceof Error ? error.message : String(error)}`,
-    };
+    modelState = "unavailable";
+    unavailableReason = `重要度请求失败：${error instanceof Error ? error.message : String(error)}`;
+    return { importance: null, degradedReason: unavailableReason };
   }
 }
 
@@ -275,13 +288,12 @@ export async function recordCoachEvent(params: {
       event: params.event,
       facts: params.facts,
       importance: null,
-      importanceDegradedReason: modelAvailable
-        ? "模型重要度尚未返回，先按规则分落盘"
-        : modelUnavailableReason(),
+      importanceDegradedReason:
+        modelState === "available" ? "模型重要度尚未返回，先按规则分落盘" : unavailableReason,
     });
 
-    // 模型不可用（未配置 / 请求失败）：规则分就是最终结果，不再发注定降级的请求。
-    if (!modelAvailable) return;
+    // 已知不可用：规则分就是最终结果，不再发注定降级的请求。
+    if (modelState === "unavailable") return;
 
     // ---- 2) 模型返回后就地升级；失败则保持规则分、只更新降级原因 ----
     const scored = await requestImportanceScore({ event: params.event, isNewDomain: isNew });
@@ -307,6 +319,47 @@ export function loadCoachEpisodes(userId: string): NpcEpisode[] {
 }
 
 /**
+ * 解析服务端返回的记忆。
+ *
+ * - 非数组 / 任一条结构不合法 → `null`（调用方本地回退）；
+ * - 空数组是合法结果（服务端明确“没有记忆”），不回退。
+ */
+function parseMemories(raw: unknown): DecisionMemory[] | null {
+  if (!Array.isArray(raw)) return null;
+  const out: DecisionMemory[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== "object") return null;
+    const m = item as Record<string, unknown>;
+    if (typeof m.questionId !== "string" || !m.questionId) return null;
+    if (typeof m.domain !== "string" || !m.domain) return null;
+    if (typeof m.topic !== "string") return null;
+    if (typeof m.correct !== "boolean") return null;
+    if (typeof m.at !== "number" || !Number.isFinite(m.at)) return null;
+    if (typeof m.reason !== "string" || !m.reason) return null;
+    out.push({
+      questionId: m.questionId,
+      domain: m.domain as DecisionMemory["domain"],
+      topic: m.topic,
+      correct: m.correct,
+      at: m.at,
+      reason: m.reason,
+    });
+  }
+  return out;
+}
+
+/** 本地按同一纯函数算记忆（旧服务端 / 请求失败时使用）。 */
+function localMemories(context: NpcContext): DecisionMemory[] {
+  const focus = pickWeakestDomain(context);
+  if (!focus) return [];
+  return selectMemories({
+    episodes: context.episodes,
+    domain: focus,
+    now: context.now,
+  });
+}
+
+/**
  * 构造 NPC 上下文（客户端版，从既有存储取数）。
  */
 export function buildCoachContext(params: {
@@ -318,6 +371,7 @@ export function buildCoachContext(params: {
   readonly history: readonly { domains: readonly DomainId[]; correct: number; total: number }[];
   readonly seed: number;
   readonly now: number;
+  readonly promise?: NpcPromise;
 }) {
   return buildNpcContext({
     ...params,

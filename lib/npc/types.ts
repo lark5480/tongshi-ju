@@ -10,7 +10,7 @@
  * - 记忆按用户隔离 —— 所有带用户维度的结构都以 `userId` 为第一层键。
  */
 
-import type { DomainId, Question } from "@/types";
+import type { BranchOptionId, DomainId, Question } from "@/types";
 
 /**
  * NPC 观察到的一次答题事件（情景记忆的原料）。
@@ -126,6 +126,23 @@ export interface RetrievalHit {
 }
 
 /**
+ * 面板上展示的一条“老师记得的事”。
+ *
+ * 与 `RetrievalHit` 分开：后者带分数与内部 reason（治理证据），
+ * 这里是**玩家可见**的窄视图，不含打分细节与内部术语。
+ */
+export interface DecisionMemory {
+  readonly questionId: string;
+  readonly domain: DomainId;
+  readonly topic: string;
+  readonly correct: boolean;
+  /** 事件发生时刻（毫秒时间戳）。 */
+  readonly at: number;
+  /** 玩家可读理由（无英文域 id、无“同域/跨域/难度匹配”等内部口径）。 */
+  readonly reason: string;
+}
+
+/**
  * NPC 的决策结果：选域 + 选题 + 点评。
  *
  * 裁决 4：NPC 是**难度调节器**，不是聊天机器人 ——
@@ -156,6 +173,27 @@ export interface NpcDecision {
   readonly degradedReason?: string;
   /** 决策依据摘要（写进报告，供复盘）。 */
   readonly rationale: string;
+  /**
+   * 本次点评实际参考的记忆（最多 2 条）。
+   *
+   * 可选：升级前的旧会话没有该字段 → 面板不展示、也不回填，
+   * 与情景层“旧条目缺 source 不回溯改写”的纪律一致。
+   */
+  readonly memories?: readonly DecisionMemory[];
+}
+
+/**
+ * 上一次结算做出的叙事承诺。
+ *
+ * 只进入台词（点评 prompt / 模板），**不进入**领域权重、选题或计分。
+ */
+export interface NpcPromise {
+  /** 承诺来源日期 `YYYY-MM-DD`。 */
+  readonly date: string;
+  readonly option: BranchOptionId;
+  /** 玩家看到的选项文案。 */
+  readonly label: string;
+  readonly domain?: DomainId;
 }
 
 /**
@@ -176,4 +214,10 @@ export interface NpcContext {
   readonly seed: number;
   /** 当前时刻（毫秒时间戳，由调用方注入）。 */
   readonly now: number;
+  /**
+   * 上一次结算的叙事承诺（可选）。
+   *
+   * 只用于让台词呼应玩家选择；旧上下文 / 7 天外没有承诺时为 `undefined`。
+   */
+  readonly promise?: NpcPromise;
 }

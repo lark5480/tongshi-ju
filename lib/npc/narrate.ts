@@ -13,8 +13,11 @@
  */
 
 import { domainName } from "@/content/domains";
-import { buildCommentary } from "./core/commentary";
-import type { NpcContext, NpcDecision } from "./types";
+import { formatPromiseLine } from "./core/branch";
+import { buildCommentary, pickWeakestDomain } from "./core/commentary";
+import { selectMemories } from "./core/memory";
+import { buildWeeklyTemplate, type WeeklyDigest } from "./core/weekly";
+import type { DecisionMemory, NpcContext, NpcDecision } from "./types";
 import { decideNpc, MASTERY_FULL_MARKS } from "./core/policy";
 
 /** 一次生成的结果：正文是否为空 + 结束原因（供「思维链耗尽」判定重试）。 */
@@ -47,6 +50,9 @@ export interface NpcModel {
 /** 点评的基础额度；不足时按倍数追加，不在调用处散落魔法数字。 */
 const COMMENTARY_BASE_TOKENS = 800;
 
+/** 周报短一段话，额度比点评小。 */
+const WEEKLY_BASE_TOKENS = 400;
+
 /**
  * 让 NPC 说话（**永不抛错**）。
  *
@@ -66,6 +72,10 @@ export async function narrate(params: {
   // 单次额度与 provider 的 60s 截止对齐；重试时两次各自计时。
   const timeoutMs = params.timeoutMs ?? 60_000;
 
+  // 记忆只算一次：同一份同时喂 prompt 与决策，面板展示的不会和模型看到的分叉。
+  // 无模型 / 调用失败时也保留 —— 记忆来自本地事实，不依赖模型。
+  const memories = resolveMemories(context);
+
   // 无模型 → 直接降级
   if (!model) {
     return {
@@ -74,6 +84,7 @@ export async function narrate(params: {
         commentary: buildCommentary(context),
         degraded: true,
         degradedReason: "未配置模型端点（AI_API_BASE / AI_API_KEY / AI_MODEL 缺失）",
+        memories,
       }),
       degraded: true,
       degradedReason: "未配置模型端点（AI_API_BASE / AI_API_KEY / AI_MODEL 缺失）",
@@ -81,27 +92,23 @@ export async function narrate(params: {
   }
 
   try {
-    const prompt = buildPrompt(context);
-    const first = await withTimeout(generateOnce(model, prompt, COMMENTARY_BASE_TOKENS), timeoutMs);
-    let attempt = first;
-    let text = extractText(attempt.value);
-
-    // reasoning 模型的思维链也算 max_tokens：正文为空且 finish_reason=length
-    // 说明额度被思维链吃光 → 按倍数追加额度重试一次。
-    if (!text && attempt.finishReason === "length") {
-      attempt = await withTimeout(generateOnce(model, prompt, attempt.maxTokens * 2), timeoutMs);
-      text = extractText(attempt.value);
-    }
-
-    if (!text) {
-      throw new Error(
-        attempt.finishReason === "length"
-          ? `思维链耗尽：finish_reason=length（max_tokens=${attempt.maxTokens}）`
-          : "模型返回内容为空或不是可提取的文本"
-      );
+    const prompt = buildPrompt(context, memories);
+    const generated = await generateText({
+      model,
+      prompt,
+      timeoutMs,
+      baseTokens: COMMENTARY_BASE_TOKENS,
+    });
+    if (!generated.text) {
+      throw new Error(generated.failureReason ?? "模型返回内容为空或不是可提取的文本");
     }
     return {
-      decision: decideNpc({ context, commentary: text, degraded: false }),
+      decision: decideNpc({
+        context,
+        commentary: withPromiseMention(generated.text, context.promise),
+        degraded: false,
+        memories,
+      }),
       degraded: false,
     };
   } catch (error) {
@@ -112,6 +119,7 @@ export async function narrate(params: {
         commentary: buildCommentary(context),
         degraded: true,
         degradedReason: reason,
+        memories,
       }),
       degraded: true,
       degradedReason: reason,
@@ -119,12 +127,36 @@ export async function narrate(params: {
   }
 }
 
+/** 焦点域下的玩家可见记忆；没有焦点域时为空。 */
+function resolveMemories(context: NpcContext): DecisionMemory[] {
+  const focus = pickWeakestDomain(context);
+  if (!focus) return [];
+  return selectMemories({
+    episodes: context.episodes,
+    domain: focus,
+    now: context.now,
+  });
+}
+
+/**
+ * 模型有时会忽略“上次的选择”。
+ *
+ * 次日记忆是产品承诺，不能靠采样碰运气：模型没提时补半句，
+ * 保证玩家一定能看到这次选择被记住。
+ */
+function withPromiseMention(text: string, promise?: NpcContext["promise"]): string {
+  if (!promise) return text;
+  if (text.includes("上次") || text.includes(promise.label)) return text;
+  const punct = /[。！？]$/.test(text) ? "" : "。";
+  return `${text}${punct}上次你选了${promise.label}，今天先看它。`;
+}
+
 /**
  * 构造提示词。
  *
  * 只给模型**事实摘要**，不让它决定出题 —— 裁决 14。
  */
-function buildPrompt(context: NpcContext): string {
+function buildPrompt(context: NpcContext, memories: readonly DecisionMemory[]): string {
   const domainLines = context.domains.map((d) => {
     const attempts = context.facts.attemptCounts[d] ?? 0;
     const wrongs = context.facts.wrongCounts[d] ?? 0;
@@ -142,12 +174,26 @@ function buildPrompt(context: NpcContext): string {
   return [
     "你是一个知识闯关游戏里的「老师 NPC」。",
     "请根据玩家的答题情况，用**一句话**点评他今天该练什么。",
-    "要求：中文、不超过 40 字、具体点名领域与数字、不要寒暄、不要提问。",
+    "要求：中文、不超过 50 字、必须写出至少一个数字（答题次数或错题次数）、点名领域、不要寒暄、不要提问。",
     "",
     "玩家在各领域的情况：",
     ...domainLines,
     "",
     `最薄弱的两个领域：${weak.join("、") || "无"}`,
+    ...(context.promise
+      ? [
+          "",
+          `玩家${formatPromiseLine(context.promise)}（${context.promise.date}）。`,
+          "请用半句话自然呼应这次选择（例如“上次你选了…，今天先…”），不要逐字复述。",
+        ]
+      : []),
+    ...(memories.length > 0
+      ? [
+          "",
+          "你记得这些事（最多提一条，可以自然带出，不要逐条复述，也不要编造）：",
+          ...memories.map((m) => `- ${m.reason}`),
+        ]
+      : []),
     "",
     "只输出这句话本身，不要任何解释或格式标记。",
   ].join("\n");
@@ -179,6 +225,43 @@ async function generateOnce(
     finishReason: null,
     contentEmpty: value === null || value === undefined,
     maxTokens,
+  };
+}
+
+/**
+ * 生成一段文本，失败返回原因（不抛错）。
+ *
+ * 点评与周报共用同一套超时 / 思维链重试逻辑，避免两处各写一份。
+ */
+async function generateText(params: {
+  readonly model: NpcModel;
+  readonly prompt: string;
+  readonly timeoutMs: number;
+  readonly baseTokens: number;
+}): Promise<{ text: string | null; failureReason: string | null }> {
+  let attempt = await withTimeout(
+    generateOnce(params.model, params.prompt, params.baseTokens),
+    params.timeoutMs
+  );
+  let text = extractText(attempt.value);
+
+  // reasoning 模型的思维链也算 max_tokens：正文为空且 finish_reason=length
+  // 说明额度被思维链吃光 → 按倍数追加额度重试一次。
+  if (!text && attempt.finishReason === "length") {
+    attempt = await withTimeout(
+      generateOnce(params.model, params.prompt, attempt.maxTokens * 2),
+      params.timeoutMs
+    );
+    text = extractText(attempt.value);
+  }
+
+  if (text) return { text, failureReason: null };
+  return {
+    text: null,
+    failureReason:
+      attempt.finishReason === "length"
+        ? `思维链耗尽：finish_reason=length（max_tokens=${attempt.maxTokens}）`
+        : "模型返回内容为空或不是可提取的文本",
   };
 }
 
@@ -234,4 +317,71 @@ async function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
   } finally {
     if (timer) clearTimeout(timer);
   }
+}
+
+/**
+ * 本周周报（**永不抛错**）。
+ *
+ * 与点评共用 `generateText` 的超时 / 重试；无模型或失败时返回确定性模板，
+ * 并显式给出降级原因（不可静默降级）。
+ */
+export async function narrateWeeklyReport(params: {
+  readonly digest: WeeklyDigest;
+  readonly model: NpcModel | null;
+  readonly timeoutMs?: number;
+}): Promise<{ text: string; degraded: boolean; degradedReason?: string }> {
+  const template = buildWeeklyTemplate(params.digest);
+  if (!params.model) {
+    return {
+      text: template,
+      degraded: true,
+      degradedReason: "未配置模型端点（AI_API_BASE / AI_API_KEY / AI_MODEL 缺失）",
+    };
+  }
+
+  try {
+    const generated = await generateText({
+      model: params.model,
+      prompt: buildWeeklyPrompt(params.digest),
+      timeoutMs: params.timeoutMs ?? 60_000,
+      baseTokens: WEEKLY_BASE_TOKENS,
+    });
+    if (!generated.text) {
+      throw new Error(generated.failureReason ?? "模型返回内容为空或不是可提取的文本");
+    }
+    return { text: generated.text, degraded: false };
+  } catch (error) {
+    return {
+      text: template,
+      degraded: true,
+      degradedReason: `模型调用失败：${error instanceof Error ? error.message : String(error)}`,
+    };
+  }
+}
+
+/** 周报提示词：只给聚合事实，不让模型碰出题或计分。 */
+function buildWeeklyPrompt(digest: WeeklyDigest): string {
+  const weak = digest.weakestDomain
+    ? digest.domains.find((d) => d.domain === digest.weakestDomain)
+    : undefined;
+  const lines = [
+    "你是知识闯关游戏里的「老师 NPC」。下面是你负责的玩家本周的记录：",
+    `- 每日挑战 ${digest.sessions} 次（活跃 ${digest.activeDays} 天），答对 ${digest.correct}/${digest.answered} 题（${Math.round(
+      digest.accuracy * 100
+    )}%）`,
+    weak && weak.wrongs > 0
+      ? `- 最薄弱的领域：${domainName(weak.domain)}（错 ${weak.wrongs} 次）`
+      : "- 本周没有答错",
+    ...(digest.practice.shown > 0
+      ? [`- 加练题：作答 ${digest.practice.answered} 天，跳过 ${digest.practice.skipped} 天`]
+      : []),
+  ];
+
+  return [
+    ...lines,
+    "",
+    "请写一段不超过 80 字的中文周报：先肯定一个具体进步，再给一个下周可执行的建议。",
+    "不要寒暄、不要提问、不要编造未提供的数据。",
+    "只输出这段话本身，不要任何解释或格式标记。",
+  ].join("\n");
 }

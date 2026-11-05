@@ -1,10 +1,21 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { BarChart3, Flame, Medal, Star, Target, TrendingUp, Trophy } from "lucide-react";
+import Link from "next/link";
+import {
+  BarChart3,
+  Flame,
+  Medal,
+  MessageCircle,
+  Star,
+  Target,
+  TrendingUp,
+  Trophy,
+} from "lucide-react";
 
 import { domainName } from "@/content/domains";
-import { getHistory, getRankSnapshot } from "@/lib/storage";
+import { getHistory, getProfile, getRankSnapshot } from "@/lib/storage";
+import { getWeeklyReport, type WeeklyReport } from "@/lib/npc/weekly";
 import { SCORING_VERSION, scoringVersionLabel, scoringVersionOf } from "@/lib/engine/scoring";
 import type { RankSnapshot } from "@/lib/engine/rank";
 import type { HistoryEntry } from "@/types";
@@ -14,16 +25,45 @@ const CHART_H = 130;
 const PAD_TOP = 14;
 const PAD_BOTTOM = 10;
 
+/** 周报降级原因 → 玩家可读文案（与每日点评同一纪律：不可静默降级）。 */
+function weeklyDegradedLabel(reason?: string): string {
+  if (!reason) return "模型不可用，以下为确定性模板";
+  if (reason.includes("未配置")) return "未配置模型，以下为确定性模板";
+  return `模型调用失败，已降级为确定性模板：${reason}`;
+}
+
 /** 战绩：最近 30 场记录（每日挑战与对战）。 */
 export default function HistoryPage() {
   const [entries, setEntries] = useState<HistoryEntry[]>([]);
   const [rank, setRank] = useState<RankSnapshot | null>(null);
   const [ready, setReady] = useState(false);
+  const [weekly, setWeekly] = useState<WeeklyReport | null>(null);
+  const [weeklyLoading, setWeeklyLoading] = useState(true);
 
   useEffect(() => {
     setEntries(getHistory());
     setRank(getRankSnapshot());
     setReady(true);
+  }, []);
+
+  // 周报只读本地聚合，数据没变时命中缓存、不发请求（见 lib/npc/weekly.ts）。
+  useEffect(() => {
+    let cancelled = false;
+    const { name } = getProfile();
+    getWeeklyReport({ userId: name, now: Date.now() })
+      .then((report) => {
+        if (!cancelled) setWeekly(report);
+      })
+      .catch(() => {
+        // getWeeklyReport 本身不抛错；这里只防未来改动把页面带崩。
+        if (!cancelled) setWeekly(null);
+      })
+      .finally(() => {
+        if (!cancelled) setWeeklyLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   /**
@@ -103,6 +143,67 @@ export default function HistoryPage() {
           </p>
         )}
       </header>
+
+      {/* 本周老师周报 */}
+      <div className="panel space-y-2 p-4" aria-live="polite">
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-dim">
+            <MessageCircle size={13} className="text-accent" aria-hidden />
+            本周老师周报
+          </div>
+          {weekly && weekly.status !== "empty" && (
+            <span className="text-xs text-dim">
+              {weekly.digest.from.slice(5)} ~ {weekly.digest.to.slice(5)}
+            </span>
+          )}
+        </div>
+
+        {weeklyLoading && <p className="text-xs text-accent">老师正在翻这周的记录…</p>}
+
+        {!weeklyLoading && weekly?.status === "empty" && (
+          <div className="space-y-1">
+            <p className="text-sm text-muted">本周还没开始。</p>
+            <Link href="/daily" className="text-xs font-semibold text-accent">
+              去做今日挑战 →
+            </Link>
+          </div>
+        )}
+
+        {!weeklyLoading && weekly && weekly.status !== "empty" && (
+          <>
+            <div className="flex flex-wrap items-center gap-2 text-xs">
+              <span className="rounded-pill bg-surface-2 px-2 py-0.5">
+                挑战 {weekly.digest.sessions} 次
+              </span>
+              <span className="rounded-pill bg-surface-2 px-2 py-0.5">
+                答对 {weekly.digest.correct}/{weekly.digest.answered}
+              </span>
+              <span className="rounded-pill bg-surface-2 px-2 py-0.5">
+                正确率 {Math.round(weekly.digest.accuracy * 100)}%
+              </span>
+              {weekly.digest.practice.shown > 0 && (
+                <span className="rounded-pill bg-surface-2 px-2 py-0.5">
+                  加练 {weekly.digest.practice.answered} 天
+                </span>
+              )}
+              <span className="text-[10px] text-dim">
+                {weekly.status === "template" ? "模板回顾" : "AI 回顾"}
+              </span>
+            </div>
+
+            <p className="text-sm">{weekly.text}</p>
+
+            {weekly.digest.weakestDomain && (
+              <p className="text-xs text-dim">
+                本周最需要补：{domainName(weekly.digest.weakestDomain)}
+              </p>
+            )}
+            {weekly.status === "template" && (
+              <p className="text-xs text-dim">（{weeklyDegradedLabel(weekly.degradedReason)}）</p>
+            )}
+          </>
+        )}
+      </div>
 
       {/* 段位 */}
       {rank && (

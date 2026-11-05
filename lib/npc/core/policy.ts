@@ -18,7 +18,8 @@ import type { DomainId, Question } from "@/types";
 import { domainName } from "@/content/domains";
 import { hashSeed, mulberry32 } from "@/lib/engine/prng";
 
-import type { NpcContext, NpcDecision } from "../types";
+import type { NpcContext, NpcDecision, DecisionMemory } from "../types";
+import { selectMemories } from "./memory";
 
 /**
  * 「完全掌握」的净答对数刻度。
@@ -127,6 +128,13 @@ export function decideNpc(params: {
   readonly degradedReason?: string;
   /** 点评三态；缺省按 `degraded` 推断（降级 / 模型台词）。 */
   readonly commentaryStatus?: "pending" | "model" | "degraded";
+  /**
+   * 本次点评实际参考的记忆。
+   *
+   * 缺省时由 `domainOrder[0]` 现场计算；`narrate` 会把同一份显式传入，
+   * 保证“模型看到的”与“面板展示的”不会分叉。
+   */
+  readonly memories?: readonly DecisionMemory[];
 }): NpcDecision {
   const { context } = params;
   const weights = computeDomainWeights(context);
@@ -137,6 +145,17 @@ export function decideNpc(params: {
   // 领域内选题：只对**权重最高的域**排序（一次决策只聚焦一个域，保持可解释）。
   const focusDomain = domainOrder[0];
   const questionOrder = focusDomain ? orderQuestions({ context, domain: focusDomain }) : [];
+
+  // 记忆与选题共用同一个焦点域，不维护第二套“该提哪个域”的口径。
+  const memories =
+    params.memories ??
+    (focusDomain
+      ? selectMemories({
+          episodes: context.episodes,
+          domain: focusDomain,
+          now: context.now,
+        })
+      : []);
 
   const rationale = buildRationale(context, weights, domainOrder, focusDomain);
 
@@ -151,6 +170,7 @@ export function decideNpc(params: {
     commentaryStatus: params.commentaryStatus ?? (degraded ? "degraded" : "model"),
     ...(params.degradedReason ? { degradedReason: params.degradedReason } : {}),
     rationale,
+    memories,
   };
 }
 

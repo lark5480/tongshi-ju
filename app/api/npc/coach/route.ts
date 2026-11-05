@@ -59,6 +59,15 @@ const npcCoachSchema = z.object({
     )
     .max(200)
     .default([]),
+  /** 上一次结算的叙事承诺：只进入台词，不参与决策。 */
+  promise: z
+    .object({
+      date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+      option: z.enum(["continue-weak", "switch-easy", "follow-teacher"]),
+      label: z.string().min(1).max(20),
+      domain: z.string().min(1).max(32).optional(),
+    })
+    .optional(),
   seed: z.number().int(),
   now: z.number().int(),
 });
@@ -82,6 +91,7 @@ export async function POST(req: Request) {
     episodes: input.episodes as NpcContext["episodes"],
     seed: input.seed,
     now: input.now,
+    ...(input.promise ? { promise: input.promise as NpcContext["promise"] } : {}),
   };
 
   const provider = getProvider();
@@ -104,6 +114,8 @@ export async function POST(req: Request) {
     rationale: result.decision.rationale,
     domainOrder: result.decision.domainOrder,
     weights: result.decision.weights,
+    /** 本次点评实际参考的记忆（与面板展示同一份）。 */
+    memories: result.decision.memories ?? [],
     weakestDomain: pickWeakestDomain(context) ?? null,
     /** 模板点评（降级时的底稿，便于对照模型版本改了没有）。 */
     templateCommentary: buildCommentary(context),

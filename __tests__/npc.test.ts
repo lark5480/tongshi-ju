@@ -19,6 +19,7 @@ import {
   buildFacts,
   computeDomainWeights,
   decideNpc,
+  formatMemoryReason,
   narrate,
   orderQuestions,
   pickPracticeQuestion,
@@ -27,6 +28,7 @@ import {
   resolveCommentaryStatus,
   retrieveEpisodes,
   ruleImportance,
+  selectMemories,
   toEpisode,
   updateFacts,
 } from "../lib/npc";
@@ -35,6 +37,7 @@ import {
   loadCoachEpisodes,
   recordCoachEvent,
   requestCoach,
+  resetNpcModelStateForTest,
 } from "../lib/npc/client";
 import { extractImportanceFromModel } from "../lib/npc/core/importance";
 import {
@@ -1064,4 +1067,255 @@ test("重要度升级：模型失败不改分，只更新降级原因", () => {
   assert.equal(updated.importanceSource, "rule");
   assert.equal(updated.importanceDegraded, true);
   assert.equal(updated.importanceDegradedReason, "重要度服务不可用（HTTP 500）");
+});
+
+// ---------------------------------------------------------------- 记忆展示（P1）
+
+/** 让 gaming 稳定成为最弱域的 facts（记忆展示用）。 */
+function memoryFacts(): NpcFacts {
+  return {
+    ...emptyFacts(),
+    mastery: { gaming: 0, tech: 10 },
+    wrongCounts: { gaming: 2 },
+    attemptCounts: { gaming: 2, tech: 2 },
+    lastSeenAt: { gaming: NOW - 86400000, tech: NOW - 86400000 },
+    touchedDomains: 2,
+  };
+}
+
+function memoryEpisodes(): ReturnType<typeof toEpisode>[] {
+  return [
+    toEpisode({
+      event: event({
+        questionId: "g1",
+        domain: "gaming" as AnswerEvent["domain"],
+        topic: "主机与PC",
+        correct: false,
+        at: NOW - 3 * 86400000,
+      }),
+      isNewDomain: false,
+    }),
+    toEpisode({
+      event: event({
+        questionId: "g1",
+        domain: "gaming" as AnswerEvent["domain"],
+        topic: "主机与PC",
+        correct: true,
+        at: NOW - 4 * 86400000,
+      }),
+      isNewDomain: false,
+    }),
+    toEpisode({
+      event: event({
+        questionId: "g2",
+        domain: "gaming" as AnswerEvent["domain"],
+        topic: "手游",
+        correct: false,
+        at: NOW - 86400000,
+      }),
+      isNewDomain: false,
+    }),
+    toEpisode({
+      event: event({
+        questionId: "g3",
+        domain: "gaming" as AnswerEvent["domain"],
+        topic: "赛事",
+        correct: false,
+        at: NOW - 2 * 86400000,
+      }),
+      isNewDomain: false,
+    }),
+  ];
+}
+
+test("记忆：最多 2 条，同题多次作答只留一条", () => {
+  const memories = selectMemories({
+    episodes: memoryEpisodes(),
+    domain: "gaming",
+    now: NOW,
+  });
+  assert.equal(memories.length, 2);
+  assert.equal(new Set(memories.map((m) => m.questionId)).size, 2);
+});
+
+test("记忆：同一知识点重复答错只展示一次（避免两行完全一样）", () => {
+  const episodes = ["g1", "g2"].map((id) =>
+    toEpisode({
+      event: event({
+        questionId: id,
+        domain: "gaming" as AnswerEvent["domain"],
+        topic: "主机与PC",
+        correct: false,
+        at: NOW - 86400000,
+      }),
+      isNewDomain: false,
+    })
+  );
+  const memories = selectMemories({ episodes, domain: "gaming", now: NOW });
+  assert.equal(memories.length, 1);
+  assert.equal(memories[0]?.topic, "主机与PC");
+});
+
+test("记忆理由中文化：无英文域 id、无内部检索术语", () => {
+  const episode = toEpisode({
+    event: event({
+      questionId: "g1",
+      domain: "gaming" as AnswerEvent["domain"],
+      topic: "主机与PC",
+      correct: false,
+      at: NOW - 3 * 86400000,
+    }),
+    isNewDomain: false,
+  });
+  const reason = formatMemoryReason(episode, NOW);
+  assert.equal(reason, "「游戏 · 主机与PC」答错过 · 3 天前");
+  assert.ok(!reason.includes("gaming"));
+  assert.ok(!/同域|跨域|难度匹配|近期/.test(reason));
+});
+
+test("记忆理由：今天 / 昨天 / 未来时间按今天", () => {
+  const base = { domain: "gaming" as DomainId, topic: "主机与PC", correct: true };
+  assert.equal(
+    formatMemoryReason({ ...base, at: NOW - 3600_000 }, NOW),
+    "「游戏 · 主机与PC」答对过 · 今天"
+  );
+  assert.equal(
+    formatMemoryReason({ ...base, at: NOW - 86400000 }, NOW),
+    "「游戏 · 主机与PC」答对过 · 昨天"
+  );
+  assert.equal(
+    formatMemoryReason({ ...base, at: NOW + 5000 }, NOW),
+    "「游戏 · 主机与PC」答对过 · 今天"
+  );
+});
+
+test("decideNpc 缺省计算 memories；显式传入时不被覆盖", () => {
+  const context = ctx({ facts: memoryFacts(), episodes: memoryEpisodes() });
+  const auto = decideNpc({ context, commentary: "台词" });
+  assert.equal(auto.memories?.length, 2);
+  assert.equal(auto.memories?.[0]?.domain, "gaming");
+
+  const explicit = decideNpc({ context, commentary: "台词", memories: [] });
+  assert.deepEqual(explicit.memories, []);
+});
+
+test("prompt 含记忆；无记忆不追加噪声", async () => {
+  const prompts: string[] = [];
+  const model = {
+    name: "stub",
+    generate: async (prompt: string) => {
+      prompts.push(prompt);
+      return "台词";
+    },
+  };
+
+  await narrate({
+    context: ctx({ facts: memoryFacts(), episodes: memoryEpisodes() }),
+    model,
+  });
+  assert.ok(prompts[0]?.includes("你记得这些事"));
+  assert.ok(prompts[0]?.includes("「游戏 · 手游」答错过 · 昨天"));
+
+  await narrate({ context: ctx({ facts: memoryFacts(), episodes: [] }), model });
+  assert.ok(!prompts[1]?.includes("你记得这些事"));
+});
+
+test("requestCoach：服务端 memories 优先，缺省/非法回退，空数组不回退", async () => {
+  const originalFetch = globalThis.fetch;
+  const episodes = memoryEpisodes();
+  const facts = memoryFacts();
+  const call = () =>
+    requestCoach({
+      userId: "u-mem",
+      domains: ["gaming", "tech"] as NpcContext["domains"],
+      facts,
+      episodes,
+      seed: 1,
+      now: NOW,
+    });
+  const body = (memories: unknown) =>
+    JSON.stringify({
+      commentary: "台词",
+      degraded: false,
+      rationale: "依据",
+      domainOrder: ["gaming", "tech"],
+      weights: { gaming: 1, tech: 0.2 },
+      provider: "stub",
+      ...(memories === undefined ? {} : { memories }),
+    });
+
+  try {
+    const valid = [
+      {
+        questionId: "g1",
+        domain: "gaming",
+        topic: "主机与PC",
+        correct: false,
+        at: NOW - 3 * 86400000,
+        reason: "「游戏 · 主机与PC」答错过 · 3 天前",
+      },
+    ];
+    globalThis.fetch = (async () =>
+      new Response(body(valid), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      })) as typeof fetch;
+    assert.equal((await call()).decision.memories?.length, 1);
+
+    globalThis.fetch = (async () =>
+      new Response(body(undefined), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      })) as typeof fetch;
+    assert.equal((await call()).decision.memories?.length, 2, "旧服务端 → 本地回退");
+
+    globalThis.fetch = (async () =>
+      new Response(body("invalid"), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      })) as typeof fetch;
+    assert.equal((await call()).decision.memories?.length, 2, "非法结构 → 本地回退");
+
+    globalThis.fetch = (async () =>
+      new Response(body([]), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      })) as typeof fetch;
+    assert.equal((await call()).decision.memories?.length, 0, "空数组是权威结果");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("重要度探测：没有点评时首题探一次，失败即停", async () => {
+  resetNpcModelStateForTest();
+  const calls: string[] = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    calls.push(String(input));
+    return new Response(
+      JSON.stringify({ importance: null, degraded: true, degradedReason: "未配置模型端点" }),
+      { status: 200, headers: { "Content-Type": "application/json" } }
+    );
+  }) as typeof fetch;
+
+  try {
+    await recordCoachEvent({
+      userId: "u-probe",
+      event: event({ questionId: "probe-1" }),
+      facts: emptyFacts(),
+    });
+    await recordCoachEvent({
+      userId: "u-probe",
+      event: event({ questionId: "probe-2" }),
+      facts: emptyFacts(),
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+    resetNpcModelStateForTest();
+  }
+
+  assert.equal(calls.length, 1, "首次探测失败后不应每题重试");
+  assert.ok(calls[0]?.endsWith("/api/npc/importance"));
+  assert.equal(loadCoachEpisodes("u-probe").length, 2);
 });

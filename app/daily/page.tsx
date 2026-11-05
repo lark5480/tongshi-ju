@@ -18,6 +18,7 @@ import { QuestionCard } from "@/components/quiz/QuestionCard";
 import { KnowledgeChain, type ChainSlot } from "@/components/quiz/KnowledgeChain";
 import { GhostBar } from "@/components/quiz/GhostBar";
 import { ShareCard } from "@/components/result/ShareCard";
+import { BranchChoiceCard } from "@/components/result/BranchChoiceCard";
 import { Button, buttonClass } from "@/components/ui/Button";
 import { DOMAINS } from "@/content/domains";
 import { domainIcon } from "@/components/domain/DomainCard";
@@ -68,6 +69,8 @@ export default function DailyPage() {
 
   // 点评三态：pending（模板已显示、模型还在生成）/ model / degraded（真失败）。
   const npcStatus = c.npc ? resolveCommentaryStatus(c.npc) : null;
+  // 记忆来自本地事实，pending / degraded 都照常展示。
+  const npcMemories = c.npc?.memories?.slice(0, 2) ?? [];
 
   if (c.loading) {
     // 骨架屏：结构稳定、不闪烁（无障碍指南的加载反馈要求）
@@ -211,6 +214,13 @@ export default function DailyPage() {
             </div>
             <div className="text-[15px] font-semibold text-fg">{c.npc.commentary}</div>
             {c.npc.rationale && <p className="text-xs text-dim">{c.npc.rationale}</p>}
+            {npcMemories.length > 0 && (
+              <ul className="space-y-0.5 text-xs text-muted" aria-label="老师记得的事">
+                {npcMemories.map((m) => (
+                  <li key={`${m.questionId}-${m.at}`}>· {m.reason}</li>
+                ))}
+              </ul>
+            )}
             {/* 固定一行状态位：pending 与 degraded 共用，模型替换时不跳版。
                 pending 只说明「正在生成」，绝不带降级文案。 */}
             <p className="min-h-[1rem] text-xs" aria-live="polite">
@@ -220,6 +230,21 @@ export default function DailyPage() {
               )}
             </p>
           </div>
+        )}
+
+        {/* 叙事分支：选择只影响老师台词与次日记忆，不改题目与计分 */}
+        {c.finished && (c.choice || c.branchOptions.length > 0) && (
+          <BranchChoiceCard
+            options={c.branchOptions}
+            choice={c.choice}
+            onChoose={c.choose}
+            previous={c.previousChoice}
+            practice={{
+              reason: c.practiceReason,
+              correct: c.practiceCorrect,
+              skipped: c.practiceSkipped,
+            }}
+          />
         )}
 
         {/* 通识段位 */}

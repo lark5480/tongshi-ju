@@ -12,14 +12,16 @@
 
 export type {
   AnswerEvent,
+  DecisionMemory,
   NpcContext,
   NpcDecision,
   NpcEpisode,
   NpcFacts,
+  NpcPromise,
   RetrievalHit,
 } from "./types";
 
-export { narrate, type NpcModel } from "./narrate";
+export { narrate, narrateWeeklyReport, type NpcModel } from "./narrate";
 export { buildFacts, updateFacts, isNewDomain } from "./core/facts";
 export {
   appendEpisode,
@@ -29,7 +31,18 @@ export {
   touchEpisode,
 } from "./core/episodes";
 export { retrieveEpisodes } from "./core/retrieve";
+export { selectMemories, formatMemoryReason, PLAYER_MEMORY_LIMIT } from "./core/memory";
+export {
+  buildBranchOptions,
+  buildBranchTemplate,
+  buildDailyPlan,
+  buildPracticeReceipt,
+  formatPromiseLine,
+  normalizeDailyChoice,
+  type BranchMeta,
+  type BranchOption,
+} from "./core/branch";
 export { computeDomainWeights, decideNpc, orderQuestions, rankDomains } from "./core/policy";
-export { pickPracticeQuestion, type PracticePick } from "./core/practice";
+export { pickPracticeQuestion, type PracticeFocus, type PracticePick } from "./core/practice";
 export { buildCommentary, pickWeakestDomain, resolveCommentaryStatus } from "./core/commentary";
 export { computeImportance, normalizeImportance, ruleImportance } from "./core/importance";
