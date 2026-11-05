@@ -22,7 +22,14 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import type { DailySession, DomainId, PracticeFunnel, Question } from "@/types";
+import type {
+  BranchOptionId,
+  DailyChoice,
+  DailySession,
+  DomainId,
+  PracticeFunnel,
+  Question,
+} from "@/types";
 import { DOMAINS } from "@/content/domains";
 import { dayKey } from "@/lib/engine/date";
 import { buildDailySet, dailySeed } from "@/lib/engine/daily";
@@ -56,9 +63,11 @@ import {
   getHistory,
   getMastery,
   getProfile,
+  getRecentDailyChoice,
   getWrongEntries,
   pushHistory,
   recordAttempt,
+  saveDailyChoice,
   saveDailyNpc,
   saveDailySession,
   saveGhost,
@@ -72,8 +81,68 @@ import {
   recordCoachEvent,
   requestCoach,
 } from "@/lib/npc/client";
-import { buildAnswerEvent, pickPracticeQuestion, resolveCommentaryStatus } from "@/lib/npc";
-import type { NpcContext, NpcDecision } from "@/lib/npc/types";
+import {
+  buildAnswerEvent,
+  buildBranchOptions,
+  buildBranchTemplate,
+  buildDailyPlan,
+  normalizeDailyChoice,
+  pickPracticeQuestion,
+  resolveCommentaryStatus,
+  type BranchOption,
+  type PracticeFocus,
+} from "@/lib/npc";
+import { selectMemories } from "@/lib/npc/core/memory";
+import type {
+  DecisionMemory,
+  NpcContext,
+  NpcDecision,
+  NpcFacts,
+  NpcPromise,
+} from "@/lib/npc/types";
+
+/** 分支选择所需的上下文快照（结算时算一次，供点击时复用）。 */
+interface BranchMeta {
+  weakestDomain?: DomainId;
+  easyDomain?: DomainId;
+  secondDomain?: DomainId;
+  weakTopic?: string;
+  facts?: NpcFacts;
+  memory?: DecisionMemory;
+  options: readonly BranchOption[];
+}
+
+interface RecentChoice {
+  promise?: NpcPromise;
+  focus?: PracticeFocus;
+  previous?: { date: string; choice: DailyChoice };
+}
+
+/**
+ * 7 天内的最近一次结算选择：同时产出
+ * - 次日点评的承诺（promise）；
+ * - 第 5 题的选题策略（focus）；
+ * - 结算页的昨日回执（previous）。
+ */
+function recentChoice(date: string): RecentChoice {
+  const recent = getRecentDailyChoice(date);
+  if (!recent) return {};
+  const choice = normalizeDailyChoice(recent.choice);
+  return {
+    promise: {
+      date: recent.date,
+      option: choice.option,
+      label: choice.label,
+      ...(choice.domain ? { domain: choice.domain } : {}),
+    },
+    focus: {
+      strategy: choice.option,
+      ...(choice.plan?.targetDomain ? { domain: choice.plan.targetDomain } : {}),
+      ...(choice.plan?.targetTopic ? { topic: choice.plan.targetTopic } : {}),
+    },
+    previous: { date: recent.date, choice },
+  };
+}
 
 export interface AnswerRecord {
   questionId: string;
@@ -138,6 +207,14 @@ export interface DailyChallengeState {
   practiceCorrect: boolean | null;
   /** 加练题是否被主动跳过（跳过不惩罚，也不记作答）。 */
   practiceSkipped: boolean;
+  /** 结算后的叙事选择；`null` 表示今天还没选。 */
+  choice: DailyChoice | null;
+  /** 三个分支选项；结算后由当前事实算出。 */
+  branchOptions: readonly BranchOption[];
+  /** 7 天内最近一次结算选择（用于次日回执）。 */
+  previousChoice: { date: string; choice: DailyChoice } | null;
+  /** 选择分支（一天一次，选区后锁定）。 */
+  choose: (option: BranchOptionId) => void;
   start: () => void;
   toggleOption: (option: string) => void;
   /**
@@ -183,6 +260,12 @@ export function useDailyChallenge(): DailyChallengeState {
   const [practiceReason, setPracticeReason] = useState<string | null>(null);
   const [practiceCorrect, setPracticeCorrect] = useState<boolean | null>(null);
   const [practiceSkipped, setPracticeSkipped] = useState(false);
+  const [choice, setChoice] = useState<DailyChoice | null>(null);
+  const [branchOptions, setBranchOptions] = useState<readonly BranchOption[]>([]);
+  const [previousChoice, setPreviousChoice] = useState<{
+    date: string;
+    choice: DailyChoice;
+  } | null>(null);
 
   /** 本题开始时刻（本地，仅用于显示与速度分）。 */
   const startedAtRef = useRef<number>(0);
@@ -196,6 +279,9 @@ export function useDailyChallenge(): DailyChallengeState {
    * 没有闸门就会用「一题未答」的旧统计覆盖结算复盘。
    */
   const npcSeqRef = useRef(0);
+  /** 分支选择的同步锁。 */
+  const choiceRef = useRef<DailyChoice | null>(null);
+  const branchMetaRef = useRef<BranchMeta>({ options: [] });
 
   const clearTimer = useCallback(() => {
     if (timerRef.current) {
@@ -203,6 +289,75 @@ export function useDailyChallenge(): DailyChallengeState {
       timerRef.current = null;
     }
   }, []);
+
+  /**
+   * 用当前上下文刷新分支选项与点击时要用的快照。
+   *
+   * 结算页和「读取已锁定会话」两条路径共用，避免在两处各算一次最弱域。
+   */
+  const ensureBranchMeta = useCallback((context: NpcContext | null) => {
+    if (!context) {
+      branchMetaRef.current = { options: [] };
+      setBranchOptions([]);
+      return;
+    }
+    const meta = buildBranchOptions(context);
+    const memory = meta.weakestDomain
+      ? selectMemories({
+          episodes: context.episodes,
+          domain: meta.weakestDomain,
+          now: context.now,
+          limit: 1,
+        })[0]
+      : undefined;
+    branchMetaRef.current = {
+      options: meta.options,
+      facts: context.facts,
+      ...(meta.weakestDomain ? { weakestDomain: meta.weakestDomain } : {}),
+      ...(meta.easyDomain ? { easyDomain: meta.easyDomain } : {}),
+      ...(meta.secondDomain ? { secondDomain: meta.secondDomain } : {}),
+      ...(meta.weakTopic ? { weakTopic: meta.weakTopic } : {}),
+      ...(memory ? { memory } : {}),
+    };
+    setBranchOptions(meta.options);
+  }, []);
+
+  /** 结算后选择一个分支；一天一次，选中即锁定。计划与回应即时生成，不等模型。 */
+  const choose = useCallback(
+    (optionId: BranchOptionId) => {
+      if (!finished || choiceRef.current) return;
+      const meta = branchMetaRef.current;
+      const option = meta.options.find((o) => o.id === optionId);
+      if (!option) return;
+
+      const draft: DailyChoice = {
+        option: option.id,
+        label: option.label,
+        ...(option.domain ? { domain: option.domain } : {}),
+        chosenAt: Date.now(),
+        reply: buildBranchTemplate({
+          option: option.id,
+          ...(meta.weakestDomain ? { weakestDomain: meta.weakestDomain } : {}),
+          ...(meta.easyDomain ? { easyDomain: meta.easyDomain } : {}),
+          ...(meta.secondDomain ? { secondDomain: meta.secondDomain } : {}),
+          ...(meta.memory ? { memory: meta.memory } : {}),
+        }),
+        replyStatus: "template",
+        plan: buildDailyPlan({
+          option: option.id,
+          ...(meta.weakestDomain ? { weakestDomain: meta.weakestDomain } : {}),
+          ...(meta.easyDomain ? { easyDomain: meta.easyDomain } : {}),
+          ...(meta.secondDomain ? { secondDomain: meta.secondDomain } : {}),
+          ...(meta.weakTopic ? { weakTopic: meta.weakTopic } : {}),
+        }),
+      };
+
+      choiceRef.current = draft;
+      setChoice(draft);
+      saveDailyChoice(date, draft);
+    },
+    [finished, date]
+  );
 
   /**
    * 按**最新事实**重新生成点评并覆盖当日会话。
@@ -219,6 +374,7 @@ export function useDailyChallenge(): DailyChallengeState {
     const seq = ++npcSeqRef.current;
     try {
       const profile = getProfile();
+      const promise = recentChoice(date).promise;
       const context = buildCoachContext({
         userId: profile.name,
         domains,
@@ -235,7 +391,9 @@ export function useDailyChallenge(): DailyChallengeState {
         })),
         seed: dailySeed(date, domains),
         now: Date.now(),
+        ...(promise ? { promise } : {}),
       });
+      ensureBranchMeta(context);
 
       // ---- 1) 模板先行：同步展示（三态 = pending），不是降级 ----
       const pending = buildPendingDecision(context);
@@ -250,6 +408,7 @@ export function useDailyChallenge(): DailyChallengeState {
         episodes: context.episodes,
         seed: dailySeed(date, domains),
         now: context.now,
+        ...(promise ? { promise } : {}),
       });
       // 已有更新的请求（例如刷新重建）→ 这次结果作废，不能覆盖新统计。
       if (seq !== npcSeqRef.current) return;
@@ -259,7 +418,7 @@ export function useDailyChallenge(): DailyChallengeState {
       // NPC 是增强：复盘失败不应影响结算结果。
       console.warn("[daily] NPC 复盘不可用：", error);
     }
-  }, [date, domains]);
+  }, [date, domains, ensureBranchMeta]);
 
   // ---- 初始化：确定领域 → 抽题 → 锁定当日题集 ----
   useEffect(() => {
@@ -297,6 +456,8 @@ export function useDailyChallenge(): DailyChallengeState {
             });
 
         if (cancelled) return;
+        const recent = recentChoice(date);
+        setPreviousChoice(recent.previous ?? null);
         setMode(locked?.mode ?? dailyMode);
         setDomains(useDomains);
         // 影子只展示同口径的基准：旧口径（5 题）记录不与 4 题成绩混比。
@@ -321,6 +482,7 @@ export function useDailyChallenge(): DailyChallengeState {
               })),
               seed: dailySeed(date, useDomains),
               now: Date.now(),
+              ...(recent.promise ? { promise: recent.promise } : {}),
             });
           } catch (error) {
             console.warn("[daily] NPC 上下文不可用，第 5 题回落公共题：", error);
@@ -337,6 +499,7 @@ export function useDailyChallenge(): DailyChallengeState {
          */
         const requestNpc = async (coachContext: NpcContext | null) => {
           if (!coachContext) return;
+          ensureBranchMeta(coachContext);
           const seq = ++npcSeqRef.current;
           try {
             const pending = buildPendingDecision(coachContext);
@@ -350,6 +513,7 @@ export function useDailyChallenge(): DailyChallengeState {
               episodes: coachContext.episodes,
               seed: dailySeed(date, useDomains),
               now: coachContext.now,
+              ...(coachContext.promise ? { promise: coachContext.promise } : {}),
             });
             // 结算后已发起新的复盘（seq 更大）→ 开局这份作废，避免覆盖最新统计。
             if (cancelled || seq !== npcSeqRef.current) return;
@@ -370,8 +534,15 @@ export function useDailyChallenge(): DailyChallengeState {
           const qs = locked.questionIds.map((id) => byId.get(id)).filter(Boolean) as Question[];
           if (qs.length > 0) {
             setQuestions(qs);
-            // 点评随会话落盘：锁定会话再次进入时先读回，缺失（旧会话）再补请求。
+            const coachContext = makeContext(pool);
+            ensureBranchMeta(coachContext);
+            // 点评与分支都随会话落盘：锁定会话再次进入时先读回。
             setNpc(locked.npc ?? null);
+            const rawChoice = locked.choice ?? null;
+            const storedChoice = rawChoice ? normalizeDailyChoice(rawChoice) : null;
+            if (storedChoice) saveDailyChoice(date, storedChoice);
+            setChoice(storedChoice);
+            choiceRef.current = storedChoice;
             setPracticeSkipped(locked.practiceSkipped ?? false);
             if (locked.done) {
               setFinished(true);
@@ -390,10 +561,9 @@ export function useDailyChallenge(): DailyChallengeState {
               setIndex(0);
             }
             setLoading(false);
-            // 缺失（旧会话）或落盘的是 `pending`（上次模型还没回来）→ 重新请求：
-            // 界面先显示已落盘的模板 + 生成中状态，回来后再替换。
-            if (!locked.npc || resolveCommentaryStatus(locked.npc) === "pending") {
-              void requestNpc(makeContext(pool));
+            // 只有**已完成**会话的点评才可能被看到；未完成会话不再发不可见的请求。
+            if (locked.done && (!locked.npc || resolveCommentaryStatus(locked.npc) === "pending")) {
+              void requestNpc(coachContext);
             }
             return;
           }
@@ -411,6 +581,8 @@ export function useDailyChallenge(): DailyChallengeState {
         // 首次使用（没有任何答题事实）或上下文构造失败 → 不选加练题，
         // 第 5 题回落到公共题的原第 5 题，行为与改动前一致。
         const npcContext = makeContext(pool);
+        // 结算后分支选项也用同一份事实，提前算好（pending 期也能选）。
+        ensureBranchMeta(npcContext);
 
         const publicPicks = buildDailySet({
           dateKey: date,
@@ -432,6 +604,7 @@ export function useDailyChallenge(): DailyChallengeState {
             ? pickPracticeQuestion({
                 context: npcContext,
                 excludeIds: new Set(publicQuestions.map((q) => q.id)),
+                ...(recent.focus ? { focus: recent.focus } : {}),
               })
             : undefined;
         const practiceQuestion = practice?.question ?? fallbackFifth;
@@ -465,12 +638,7 @@ export function useDailyChallenge(): DailyChallengeState {
         };
         saveDailySession(session);
         setLoading(false);
-
-        // ---- 老师 NPC：拿到点评（模型不可用时由服务端降级为模板）----
-        //
-        // 选题已经用上面这份上下文算好；这里只补「说什么」。
-        // 点评结果会写回当日会话，刷新后仍能显示。
-        void requestNpc(npcContext);
+        // 点评只在结算页展示：这里不再请求模型（避免一次用户看不到的白调）。
       } catch (e) {
         console.error("[daily] 初始化失败：", e);
         if (!cancelled) {
@@ -689,6 +857,9 @@ export function useDailyChallenge(): DailyChallengeState {
         SCORING_VERSION
       );
 
+      // 结算会整覆盖当日会话；已选过的叙事分支不能因为「重做挑战」被冲掉。
+      const rawChoice = getDailySession(date)?.choice;
+      const existingChoice = rawChoice ? normalizeDailyChoice(rawChoice) : undefined;
       saveDailySession({
         date,
         domains,
@@ -704,9 +875,13 @@ export function useDailyChallenge(): DailyChallengeState {
         ...(practiceReason ? { practiceReason } : {}),
         ...(practiceRecord ? { practiceCorrect: practiceRecord.correct } : {}),
         ...(skippedPractice && practiceRecord === undefined ? { practiceSkipped: true } : {}),
+        ...(existingChoice ? { choice: existingChoice } : {}),
       });
-      // 开局点评的事实是「一题未答」，不能拿来冒充结算后的统计：
-      // 先清掉会话里的旧点评，再按最新事实重新生成并写回（刷新读到的是最后一份）。
+      if (existingChoice) {
+        choiceRef.current = existingChoice;
+        setChoice(existingChoice);
+      }
+      // 结算点评的事实必须是本局最新成绩：清掉旧点评后按最新事实重算并写回。
       setNpc(null);
       void refreshNpc();
       bumpStreak(date);
@@ -785,6 +960,11 @@ export function useDailyChallenge(): DailyChallengeState {
     setStars(0);
     setPracticeCorrect(null);
     setPracticeSkipped(false);
+    // 分支选择保留在当日会话里；这里只清内存，重新结算后由会话读回。
+    choiceRef.current = null;
+    setChoice(null);
+    branchMetaRef.current = { options: [] };
+    setBranchOptions([]);
   }, []);
 
   return {
@@ -811,6 +991,10 @@ export function useDailyChallenge(): DailyChallengeState {
     practiceReason,
     practiceCorrect,
     practiceSkipped,
+    choice,
+    branchOptions,
+    previousChoice,
+    choose,
     start: reset,
     toggleOption,
     submit,

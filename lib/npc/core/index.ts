@@ -9,6 +9,8 @@
  * - `facts.ts`      —— 事实层构造与更新（只读既有引擎数据）
  * - `episodes.ts`   —— 情景层构造与追加
  * - `retrieve.ts`   —— 三段式检索（recency × importance × relevance）
+ * - `memory.ts`     —— 检索命中 → 玩家可读的记忆（最多 2 条）
+ * - `branch.ts`     —— 结算后分支策略 + 计划 + 回执（不调模型）
  * - `policy.ts`     —— 选域权重与领域内选题排序（难度调节器的核心）
  * - `commentary.ts` —— 降级点评模板（LLM 不可用时的确定性底座）
  */
@@ -17,5 +19,17 @@ export { computeImportance, ruleImportance, normalizeImportance } from "./import
 export { buildFacts, updateFacts } from "./facts";
 export { toEpisode, buildAnswerEvent, appendEpisode, touchEpisode } from "./episodes";
 export { retrieveEpisodes, DEFAULT_TOP_K, MIN_RELEVANCE } from "./retrieve";
+export { selectMemories, formatMemoryReason, PLAYER_MEMORY_LIMIT } from "./memory";
+export {
+  buildBranchOptions,
+  buildBranchTemplate,
+  buildDailyPlan,
+  buildPracticeReceipt,
+  formatPromiseLine,
+  normalizeDailyChoice,
+  type BranchOption,
+  type BranchMeta,
+} from "./branch";
 export { computeDomainWeights, orderQuestions, decideNpc } from "./policy";
+export { pickPracticeQuestion, type PracticeFocus, type PracticePick } from "./practice";
 export { buildCommentary, pickWeakestDomain } from "./commentary";

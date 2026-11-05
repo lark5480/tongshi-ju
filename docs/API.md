@@ -90,6 +90,7 @@
 | `POST` | `/api/ai/generate` | AI 出题（管理入口） | `x-ai-admin-token` |
 | `POST` | `/api/npc/coach` | 老师 NPC 点评（模型不可用 → 200 + `degraded`） | 无（限流 20 次/分/IP） |
 | `POST` | `/api/npc/importance` | 单题事件的重要度打分（不可用 → 200 + `degraded`） | 无（限流 120 次/分/IP） |
+| `POST` | `/api/npc/weekly` | 本周周报（不可用 → 200 + 模板 + `degraded`） | 无（限流 6 次/分/IP） |
 
 ---
 
@@ -462,6 +463,12 @@ data: <json>
       "lastAccessedAt": 1700000000000
     }
   ],
+  "promise": {
+    "date": "2026-11-04",
+    "option": "continue-weak",
+    "label": "继续补「游戏」",
+    "domain": "gaming"
+  },
   "seed": 123456,
   "now": 1700000000000
 }
@@ -472,6 +479,7 @@ data: <json>
 | `userId` / `domains` | 必填；`domains` 1–12 个 |
 | `facts` | 必填；缺失的 record 按空对象处理 |
 | `episodes` | 可选，最多 200 条；`source` / `importanceSource` 缺省表示升级前的旧条目 |
+| `promise` | 可选；上一次结算的叙事承诺，进入台词与第 5 题选题策略，不影响前 4 题与计分 |
 | `seed` / `now` | 必填整数；**服务端不读时钟**，时间由调用方注入 |
 
 **出参（200，降级也是 200）**
@@ -484,6 +492,16 @@ data: <json>
   "rationale": "gaming 权重最高：薄弱度 1.00 …",
   "domainOrder": ["gaming", "science", "history"],
   "weights": { "gaming": 0.83, "science": 0.42 },
+  "memories": [
+    {
+      "questionId": "gaming-0007",
+      "domain": "gaming",
+      "topic": "经典作品",
+      "correct": false,
+      "at": 1700000000000,
+      "reason": "「游戏 · 经典作品」答错过 · 昨天"
+    }
+  ],
   "weakestDomain": "gaming",
   "templateCommentary": "…",
   "provider": null
@@ -494,6 +512,7 @@ data: <json>
 |---|---|
 | `degraded` / `degradedReason` | 降级状态与原因；界面必须显式展示 |
 | `provider` | 实际 provider 名；`null` = 未配置模型（客户端据此跳过无意义的重要度请求） |
+| `memories` | 本次点评参考的玩家记忆（最多 2 条），与面板展示同一份；`reason` 已转成玩家可读文案。旧服务端可缺省该字段，客户端会用同一纯函数本地回退 |
 
 **错误**：`invalid_input`(400) / 限流 429。**不会**因模型问题返回 5xx。
 
@@ -537,6 +556,56 @@ data: <json>
 ```json
 { "importance": null, "degraded": true, "degradedReason": "未配置模型端点…" }
 ```
+
+**错误**：`invalid_input`(400) / 限流 429。模型问题**不会**返回 5xx。
+
+### 5.3 `POST /api/npc/weekly` —— 本周周报
+
+**鉴权**：无；按 IP 限流 **6 次/分**。
+
+**边界**：只接收**聚合后的数字**（场次 / 答对 / 正确率 / 域级错题 / 加练漏斗），
+不接收原始题目或答案；模型只负责措辞。
+
+**入参（`WeeklyDigest`）**
+
+```json
+{
+  "weekKey": "2026-11-02",
+  "from": "2026-11-02",
+  "to": "2026-11-05",
+  "sessions": 2,
+  "answered": 8,
+  "correct": 7,
+  "accuracy": 0.875,
+  "scoreTotal": 700,
+  "bestScore": 400,
+  "activeDays": 2,
+  "domains": [{ "domain": "gaming", "attempts": 3, "wrongs": 2 }],
+  "weakestDomain": "gaming",
+  "practice": { "shown": 3, "answered": 2, "correct": 1, "skipped": 1 }
+}
+```
+
+**出参（200，降级也是 200）**
+
+```json
+{
+  "text": "本周答对 7/8 题，游戏域错得最多，下周先补两次。",
+  "degraded": false,
+  "degradedReason": null,
+  "provider": "longcat",
+  "templateText": "本周完成 2 次每日挑战，答对 7/8 题（88%）。…"
+}
+```
+
+| 字段 | 说明 |
+|---|---|
+| `text` | 模型周报；降级时等于模板 |
+| `degraded` / `degradedReason` | 降级状态与原因；界面必须显式展示 |
+| `templateText` | 确定性模板底稿，便于对照模型版本 |
+
+**客户端缓存**：`lib/npc/weekly.ts` 以 `userId + weekKey + 数据指纹` 缓存到
+localStorage（`npc-weekly`），只缓存模型成功文本；同一份数据的并发请求会复用同一个在途 Promise。
 
 **错误**：`invalid_input`(400) / 限流 429。模型问题**不会**返回 5xx。
 

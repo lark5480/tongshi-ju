@@ -307,3 +307,79 @@ test("NPC 点评：结算后模板立刻可见，模型回来再替换", async (
   await expect(after.getByText("老师正在看你的错题…")).toHaveCount(0);
   await expect(after).not.toContainText("已降级");
 });
+
+/**
+ * NPC 记忆：服务端没返回 memories（旧服务端 / 精简响应）时，
+ * 客户端用同一纯函数本地回退，面板展示最多 2 条，刷新后从会话读回。
+ */
+test("NPC 记忆：本地回退展示 2 条，刷新后仍在", async ({ page }) => {
+  await page.addInitScript((now: number) => {
+    if (window.localStorage.getItem("tongshi-ju.npc-episodes")) return;
+    const domains = [
+      "anime",
+      "auto",
+      "coding",
+      "film",
+      "gaming",
+      "history",
+      "life",
+      "literature",
+      "mobile",
+      "science",
+      "tech",
+      "travel",
+    ];
+    const episodes = [];
+    for (const domain of domains) {
+      for (let i = 0; i < 3; i++) {
+        episodes.push({
+          userId: "通识玩家",
+          questionId: `${domain}-mem-${i}`,
+          domain,
+          topic: i === 0 ? "主机与PC" : `知识点${i}`,
+          difficulty: 1,
+          correct: i !== 0,
+          at: now - (i + 1) * 86400000,
+          importance: 10,
+          importanceSource: "rule",
+          importanceDegraded: false,
+          lastAccessedAt: now - (i + 1) * 86400000,
+        });
+      }
+    }
+    window.localStorage.setItem("tongshi-ju.npc-episodes", JSON.stringify(episodes));
+  }, Date.now());
+
+  // 故意不返回 memories：走客户端本地回退。
+  await page.route("**/api/npc/coach", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        commentary: "老师记得你。",
+        degraded: false,
+        rationale: "e2e 固定决策依据",
+        domainOrder: ["gaming", "tech"],
+        weights: { gaming: 1, tech: 0.5 },
+        provider: "e2e-stub",
+      }),
+    });
+  });
+
+  await finishDaily(page);
+
+  const panel = page.locator(".panel", { hasText: "老师 NPC" }).first();
+  const rows = panel.locator('ul[aria-label="老师记得的事"] li');
+  await expect(panel.getByText("老师记得你。")).toBeVisible();
+  await expect(rows).toHaveCount(2);
+  await expect(rows.first()).toContainText(/答错过|答对过/);
+  const before = await rows.allInnerTexts();
+
+  await page.unroute("**/api/npc/coach");
+  await page.reload();
+
+  const after = page.locator(".panel", { hasText: "老师 NPC" }).first();
+  const afterRows = after.locator('ul[aria-label="老师记得的事"] li');
+  await expect(afterRows).toHaveCount(2);
+  expect(await afterRows.allInnerTexts()).toEqual(before);
+});

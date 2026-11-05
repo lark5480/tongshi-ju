@@ -23,10 +23,14 @@ lib/npc/
 │  ├─ facts.ts       事实层（语义记忆）构造与更新
 │  ├─ episodes.ts    情景层（记忆流）只追加
 │  ├─ retrieve.ts    三段式检索（recency × importance × relevance）
+│  ├─ memory.ts      检索命中 → 玩家可读记忆（最多 2 条）
+│  ├─ branch.ts      结算后策略 / 计划 / 回执（纯函数，不调模型）
+│  ├─ weekly.ts      本周周报纯函数（周界 / 聚合 / 模板 / 指纹）
 │  ├─ policy.ts      选域权重 + 领域内选题排序（难度调节器核心）
 │  └─ commentary.ts  降级点评模板
 ├─ narrate.ts        LLM 台词层（唯一调模型的地方之一）+ 降级编排
 ├─ storage.ts        宿主接入层：读写 NPC 情景层（按用户分区）
+├─ weekly.ts         宿主接入层：收集本周数据 + 周报缓存
 ├─ client.ts         浏览器侧：请求点评 / 记录事件（永不抛错）
 └─ index.ts          对外出口
 ```
@@ -59,6 +63,7 @@ types ← core ← narrate ← client / route
 | ④ | 领域权重口径 `weakness×0.5 + errorRate×0.3 + recency×0.2` | `core/policy.ts` | 同上 |
 | ⑤ | 前 4 题**全网同题**、逐题不变；NPC 只影响第 5 题（个人加练、不计分） | `core/practice.ts` + `hooks/useDailyChallenge.ts` | 红线：改前 4 题即破坏"全网同题" |
 | ⑥ | 降级契约：模型不可用/超时/失败 → 模板点评 + `degraded: true` + 原因 | `narrate.ts` | 不可静默降级 |
+| ⑦ | 叙事承诺只影响第 5 题策略：`plan` / `promise` 不进入前 4 题与计分；`focus` 只传给 `pickPracticeQuestion` | `core/branch.ts` + `core/practice.ts` | 红线：不得改前 4 题、计分、duel/PK |
 
 ---
 
@@ -150,6 +155,13 @@ score = recency + importance + relevance        （三项等权）
 **可解释**：每个命中带 `reason`（如「答错过 · 同域(gaming) · 难度匹配 · 近期」），
 写进报告供复盘"为什么想起这条"。
 
+**接入位置**：`core/memory.ts` 以焦点域（`domainOrder[0]`）调检索，先取 4 条候选、
+按「题 + 知识点 + 对错」去重后给玩家 **2 条**（同题重复作答、同知识点同结果都不会并排出现）。
+同一份 `DecisionMemory` 同时进入模型 prompt 与结算面板，
+保证“模型说的”和“玩家看到的”是同一批记忆；`RetrievalHit.reason` 仍保留内部口径作治理证据，
+玩家看到的是去掉英文域 id 与“同域/跨域/难度匹配”等术语的中文理由。
+无模型 / 调用失败时记忆照常展示 —— 它来自本地事实，不依赖模型。
+
 ---
 
 ## 5. 决策（难度调节器）
@@ -224,6 +236,10 @@ questionOrder   = 领域内：错题优先 → 低熟练度知识点优先 → �
 | 领域权重 | `NpcDecision.weights` |
 | 降级状态与原因 | `NpcDecision.degraded` / `degradedReason` |
 | 检索命中原因 | `RetrievalHit.reason` |
+| 本次点评参考的记忆 | `NpcDecision.memories`（最多 2 条，玩家可读 `reason`） |
+| 周报降级与模板 | `/api/npc/weekly` 的 `degraded` / `templateText`；本地缓存只存模型成功文本 |
+| 叙事计划与回执 | `DailyChoice.plan`（2 步）/ 次日 `practiceReason` 与完成状态拼成的回执 |
+| 分支即时生成 | `replyStatus: "template"`；旧数据 `degraded` 仍保留原因 |
 | 模板底稿 | 接口返回 `templateCommentary`（便于对照模型版本改了没有） |
 
 > 与 aiwarden 的治理面接入是**后续增强**（裁决 6）：浏览器游戏连 Java 治理服务
@@ -240,5 +256,50 @@ questionOrder   = 领域内：错题优先 → 低熟练度知识点优先 → �
 | 自由意图分类 | **未做** —— 通识局没有玩家自由输入入口（NPC 不是聊天机器人） |
 | 反思机制 | **未做**（裁决 11）—— 拟人度增强，不是本项目的差异化 |
 | 向量检索 | **不做**（裁决 7） |
+| 记忆检索 | 已接入点评 prompt 与结算面板：焦点域命中、同题去重、最多 2 条 |
+| 本周周报 | 战绩页卡片；只统计每日挑战 v2；模型失败 → 模板 + 显式降级；按 `userId + weekKey + 数据指纹` 缓存，只缓存模型成功文本 |
+| 叙事分支 | **已接入**：策略选择 + 即时计划 + 次日回执；只影响第 5 题选题策略，不改前 4 题、计分与 duel/PK |
 | 记忆跨设备同步 | **不做** —— 纯前端 localStorage |
 | aiwarden 治理接入 | **后续增强**（裁决 6） |
+
+---
+
+## 9. 本周周报
+
+- **数据**：本周（`Asia/Shanghai` 周一 00:00 起）每日挑战 **v2**；直接按日期读当日会话，
+  不依赖 `getHistory` 的 30 场截断。v1 与 duel 不混入。
+- **聚合**：`core/weekly.ts` 纯函数；域级薄弱只算公共题，加练单独汇总。
+- **生成**：`/api/npc/weekly`；无模型 / 失败 → 确定性模板 + `degraded: true` + 原因。
+- **缓存**：`userId + weekKey + 数据指纹`；只缓存模型成功文本；同一份数据的并发请求复用同一 Promise。
+- **展示**：战绩页“本周老师周报”卡；空周不发请求，给去挑战入口。
+
+---
+
+## 10. 结算后分支：策略 + 计划 + 回执
+
+**目标**：让「选择改变练法」，而不只是换一句台词。
+
+- **三个策略**（文案固定，具体域放 `hint`）：
+  - `continue-weak`：继续补最弱项；
+  - `switch-easy`：换个轻松领域；
+  - `follow-teacher`：听老师安排。
+- **频次**：一天一次、选中即锁定；刷新后从 `DailySession.choice` 读回；
+  旧会话缺字段 = 未选择，不补写、不报错。
+- **即时生成**：`choose` 同步用 `buildBranchTemplate` + `buildDailyPlan` 生成回应与
+  **2 步计划**（不调模型）；`replyStatus: "template"`。旧 `pending` 归一为 `template`，
+  旧 `model/degraded` 保留展示。
+- **存储（单源）**：选择只写入当日会话 `choice`（含 `plan`），不另建 `npc-promise` 键；
+  次日用 `getRecentDailyChoice(beforeDate, 7)` 扫之前 7 天的 `daily.*`，取最近一次。
+- **次日第 5 题**：`PracticeFocus` 只传给 `pickPracticeQuestion`：
+  - `continue-weak`：昨日 topic 在今天候选里就优先，否则走默认最弱域；
+  - `switch-easy`：今日 `rankDomains` 末位域（最省练），域内优先难度 1；
+  - `follow-teacher`：今日第二弱域（只有一个域时回落最弱域）。
+  - 策略只对**今日**领域集合生效；昨日域不在今日集合时忽略，不强行指定。
+- **次日回执**：`buildPracticeReceipt` 把“昨天你说…”与今天实际加练理由、完成/跳过对上；
+  计划只承诺策略，不承诺次日一定出现某个域。
+- **次日点评**：`NpcPromise` 进入 prompt 与降级模板（`formatPromiseLine` 统一措辞）；
+  模型漏提时 `narrate` 补半句「上次你选了…」，保证玩家看得到。
+- **删掉的白调**：开局不再请求点评（面板只在结算页出现）；
+  重要度改用三态探测：第一次作答探一次，失败即停。
+- **红线**：前 4 题、4+1 计分、duel/PK 完全不变；策略只作用于第 5 题。
+- **文案**：用「接下来 / 下次」，不用「明天」—— 承诺窗口是 7 天，隔几天回来也不会说错。
