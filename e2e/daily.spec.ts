@@ -167,19 +167,27 @@ test("每日挑战：跳过第 5 题仍能结算，且分数不变", async ({ pa
 });
 
 /**
- * NPC 点评的持久化与降级文案。
+ * NPC 点评的两条口径：
+ * - 结算后按**最新事实**重新生成（开局那份是「一题未答」，不能冒充结算统计）；
+ * - 刷新后从当日会话读回最后一份，点评不丢。
  *
- * 用 `page.route` 构造 200 + `degraded: true`（不依赖真实 AI），
- * 断言降级文案可见；刷新后**先撤掉路由**，点评仍必须从当日会话读回。
+ * 用 `page.route` 让点评文本携带请求里的答题总数：开局是 0 题，
+ * 结算后必须是 5 题，否则说明面板还在用开局那份点评。
  */
-test("NPC 点评：降级文案可见，刷新后仍在", async ({ page }) => {
-  const commentary = "刷新后我还在：今天先补 gaming 的经典作品。";
-  await page.route("**/api/npc/coach", (route) =>
-    route.fulfill({
+test("NPC 点评：结算后按最新事实重算，刷新后仍在", async ({ page }) => {
+  await page.route("**/api/npc/coach", async (route) => {
+    const payload = route.request().postDataJSON() as {
+      facts?: { attemptCounts?: Record<string, number> };
+    };
+    const attempts = Object.values(payload?.facts?.attemptCounts ?? {}).reduce(
+      (sum, n) => sum + n,
+      0
+    );
+    await route.fulfill({
       status: 200,
       contentType: "application/json",
       body: JSON.stringify({
-        commentary,
+        commentary: `复盘：答 ${attempts} 题。`,
         degraded: true,
         degradedReason: "e2e 构造的降级",
         rationale: "e2e 固定决策依据",
@@ -187,25 +195,115 @@ test("NPC 点评：降级文案可见，刷新后仍在", async ({ page }) => {
         weights: { gaming: 1, tech: 0.5 },
         provider: null,
       }),
-    })
-  );
+    });
+  });
 
   await finishDaily(page);
 
   const panel = page.locator(".panel", { hasText: "老师 NPC" }).first();
   await expect(panel).toBeVisible();
-  await expect(panel.getByText(commentary)).toBeVisible();
+  // 结算后重新生成：必须是 5 题，而不是开局那份的 0 题
+  await expect(panel.getByText("复盘：答 5 题。")).toBeVisible();
   await expect(panel.getByText(/模型调用失败，已降级为确定性模板/)).toBeVisible();
 
   const before = (await panel.innerText()).trim();
 
-  // 撤掉路由后刷新：锁定的已完成会话应直接读回点评，不再请求服务端。
+  // 撤掉路由后刷新：锁定的已完成会话应直接读回最后一次点评，不再请求服务端。
   await page.unroute("**/api/npc/coach");
   await page.reload();
 
   const after = page.locator(".panel", { hasText: "老师 NPC" }).first();
   await expect(after).toBeVisible();
-  await expect(after.getByText(commentary)).toBeVisible();
+  await expect(after.getByText("复盘：答 5 题。")).toBeVisible();
   await expect(after.getByText(/模型调用失败，已降级为确定性模板/)).toBeVisible();
   expect((await after.innerText()).trim()).toBe(before);
+});
+
+/**
+ * 点评三态：结算后**模板立刻可见**（pending），模型回来再替换（model）。
+ *
+ * 用 `page.route` 把模型响应挂住，制造真实的「模型还在生成」窗口：
+ * - 点击「查看结算」到面板出现最新事实模板，必须在毫秒级；
+ * - 此间不能出现任何「已降级」文案（模板先行 ≠ 失败）；
+ * - 放行模型后替换为模型台词，刷新读到的是落盘的最终结果。
+ */
+test("NPC 点评：结算后模板立刻可见，模型回来再替换", async ({ page }) => {
+  let releaseGate: () => void = () => {};
+  const gate = new Promise<void>((resolve) => {
+    releaseGate = resolve;
+  });
+
+  await page.route("**/api/npc/coach", async (route) => {
+    const payload = route.request().postDataJSON() as {
+      facts?: { attemptCounts?: Record<string, number> };
+    };
+    const attempts = Object.values(payload?.facts?.attemptCounts ?? {}).reduce(
+      (sum, n) => sum + n,
+      0
+    );
+    // 挂住响应：结算页先展示模板（pending），直到本用例主动放行。
+    await gate;
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        commentary: `模型台词：今天答了 ${attempts} 题。`,
+        degraded: false,
+        rationale: "e2e 模型决策依据",
+        domainOrder: ["gaming", "tech"],
+        weights: { gaming: 1, tech: 0.5 },
+        provider: "e2e-stub",
+      }),
+    });
+  });
+
+  await runPublicQuestions(page);
+  await expectPracticePanel(page);
+  await answerCurrentQuestion(page);
+
+  // 在浏览器里记录「点击查看结算 → 最新事实模板出现」的毫秒数。
+  const pendingMs = page.evaluate(
+    () =>
+      new Promise<number>((resolve) => {
+        const started = performance.now();
+        const observer = new MutationObserver(() => {
+          const panel = Array.from(document.querySelectorAll(".panel")).find((p) =>
+            p.textContent?.includes("老师 NPC")
+          );
+          if (panel && /答 5 错 \d/.test(panel.textContent ?? "")) {
+            observer.disconnect();
+            resolve(performance.now() - started);
+          }
+        });
+        observer.observe(document.body, { childList: true, subtree: true, characterData: true });
+      })
+  );
+
+  await page.getByRole("button", { name: /查看结算/ }).click();
+
+  const panel = page.locator(".panel", { hasText: "老师 NPC" }).first();
+  await expect(panel).toBeVisible();
+  // 模板先行是毫秒级：不等模型也能看到基于最新事实的点评。
+  expect(await pendingMs).toBeLessThan(500);
+  await expect(panel.getByText("老师正在看你的错题…")).toBeVisible();
+  await expect(panel.getByText(/答 5 错 \d/)).toBeVisible();
+  // 模板先展示 ≠ 失败：此刻不能出现任何降级文案。
+  await expect(panel).not.toContainText("已降级");
+
+  const pendingText = (await panel.innerText()).trim();
+
+  // 放行模型：回来后替换为模型台词，生成中与降级文案都消失。
+  releaseGate();
+  await expect(panel.getByText("模型台词：今天答了 5 题。")).toBeVisible({ timeout: 10_000 });
+  await expect(panel).not.toContainText("老师正在看你的错题");
+  await expect(panel).not.toContainText("已降级");
+  expect((await panel.innerText()).trim()).not.toBe(pendingText);
+
+  // 刷新：读到落盘的最终结果（model），不会退回 pending。
+  await page.unroute("**/api/npc/coach");
+  await page.reload();
+  const after = page.locator(".panel", { hasText: "老师 NPC" }).first();
+  await expect(after.getByText("模型台词：今天答了 5 题。")).toBeVisible();
+  await expect(after.getByText("老师正在看你的错题…")).toHaveCount(0);
+  await expect(after).not.toContainText("已降级");
 });

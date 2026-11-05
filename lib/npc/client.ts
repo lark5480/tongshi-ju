@@ -38,11 +38,30 @@ import type { AnswerEvent, NpcContext, NpcDecision, NpcEpisode, NpcFacts } from 
 /**
  * 上一次点评是否证明「模型可用」。
  *
- * 只有模型可用时才为**每题**的重要度打分发请求 —— 未配置模型的部署
- * 不该为每一次作答打一次注定降级的网络往返。服务端仍会做最终判定，
- * 这里只负责省掉无意义的请求；模型中途失效时，打分请求会自带降级原因。
+ * 只看**服务端是否配置了 provider**，与这次点评是否降级无关：reasoning 模型
+ * 可能偶发空正文导致点评降级，但重要度接口本身仍然可用。
+ * 只有真的没配置模型时，才省掉为每题的重要度打分请求。
  */
 let modelAvailable = false;
+
+/**
+ * provider 是否存在：`null` 表示还没拿到服务端结论（请求失败）。
+ *
+ * 仅用于区分降级原因 —— 配置了但调用失败 ≠ 没配置端点。
+ */
+let providerConfigured: boolean | null = null;
+
+/**
+ * 没有可用模型时的降级原因。
+ *
+ * 只有服务端明确返回 `provider: null` 才能说「未配置」；
+ * 其余情况（请求失败 / 拿不到结论）都应写成调用不可用。
+ */
+function modelUnavailableReason(): string {
+  return providerConfigured === false
+    ? "未配置模型端点，重要度使用规则打分"
+    : "点评模型调用失败，重要度先按规则分落盘";
+}
 
 /**
  * NPC 情景层的存储键。
@@ -61,6 +80,21 @@ function readStored(): StoredEpisode[] {
 /** 写入 NPC 情景层。 */
 function writeStored(episodes: StoredEpisode[]): void {
   writeJson(STORAGE_KEY, episodes);
+}
+
+/**
+ * 同步构造「模板先行」的点评（三态里的 `pending`）。
+ *
+ * 结算后立刻展示，避免面板空白等模型；模型回来后由调用方覆盖为
+ * `model` / `degraded` 的最终结果。模板基于**最新事实**生成，
+ * 因此统计（答 N 错 M、熟练度）与结算后的本地数据一致。
+ */
+export function buildPendingDecision(context: NpcContext): NpcDecision {
+  return decideNpc({
+    context,
+    commentary: buildCommentary(context),
+    commentaryStatus: "pending",
+  });
 }
 
 /**
@@ -106,8 +140,9 @@ export async function requestCoach(params: {
     });
 
     if (!res.ok) {
-      // 服务端不可用 / 未配置模型 → 本地模板兜底
-      modelAvailable = false;
+      // 服务端不可用 → 本地模板兜底。
+      // 注意：这里**不重置** modelAvailable —— HTTP 失败拿不到 provider 结论，
+      // 不能据此判定「没有配置模型」。
       const reason = `点评服务不可用（HTTP ${res.status}）`;
       return {
         decision: decideNpc({
@@ -134,8 +169,10 @@ export async function requestCoach(params: {
 
     const commentary = typeof data.commentary === "string" ? data.commentary : "";
     const degraded = data.degraded === true;
-    // 「有 provider 且模型可用」才值得为每题的重要度打分再发请求。
-    modelAvailable = typeof data.provider === "string" && data.provider.length > 0 && !degraded;
+    // 只看 provider 是否存在：点评降级（如 reasoning 模型偶发空正文）
+    // 不代表重要度接口不可用。
+    providerConfigured = typeof data.provider === "string" && data.provider.length > 0;
+    modelAvailable = providerConfigured;
 
     return {
       decision: {
@@ -144,6 +181,8 @@ export async function requestCoach(params: {
         questionOrder: [],
         commentary: commentary || buildCommentary(context),
         degraded,
+        // 三态：请求成功且未降级 = 模型台词；否则 = 真失败。
+        commentaryStatus: degraded ? "degraded" : "model",
         ...(data.degradedReason ? { degradedReason: data.degradedReason } : {}),
         rationale: data.rationale ?? "",
       },
@@ -151,7 +190,7 @@ export async function requestCoach(params: {
       ...(data.degradedReason ? { degradedReason: data.degradedReason } : {}),
     };
   } catch (error) {
-    modelAvailable = false;
+    // 网络失败同样拿不到 provider 结论：保持上一次已知状态（未知就保持未知）。
     const reason = `点评请求失败：${error instanceof Error ? error.message : String(error)}`;
     return {
       decision: decideNpc({
@@ -179,7 +218,7 @@ async function requestImportanceScore(params: {
   if (!modelAvailable) {
     return {
       importance: null,
-      degradedReason: "未配置模型端点，重要度使用规则打分",
+      degradedReason: modelUnavailableReason(),
     };
   }
   try {
@@ -238,10 +277,10 @@ export async function recordCoachEvent(params: {
       importance: null,
       importanceDegradedReason: modelAvailable
         ? "模型重要度尚未返回，先按规则分落盘"
-        : "未配置模型端点，重要度使用规则打分",
+        : modelUnavailableReason(),
     });
 
-    // 未配置模型：规则分就是最终结果，不再发注定降级的请求。
+    // 模型不可用（未配置 / 请求失败）：规则分就是最终结果，不再发注定降级的请求。
     if (!modelAvailable) return;
 
     // ---- 2) 模型返回后就地升级；失败则保持规则分、只更新降级原因 ----

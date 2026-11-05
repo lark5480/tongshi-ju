@@ -30,6 +30,7 @@ import {
   PUBLIC_DAILY_COUNT,
 } from "@/lib/engine/scoring";
 import type { RankSnapshot } from "@/lib/engine/rank";
+import { resolveCommentaryStatus } from "@/lib/npc";
 
 /**
  * 降级原因 → 玩家可读文案。
@@ -64,6 +65,9 @@ export default function DailyPage() {
       markPracticeResultSeen(c.date);
     }
   }, [c.finished, c.questions.length, c.date]);
+
+  // 点评三态：pending（模板已显示、模型还在生成）/ model / degraded（真失败）。
+  const npcStatus = c.npc ? resolveCommentaryStatus(c.npc) : null;
 
   if (c.loading) {
     // 骨架屏：结构稳定、不闪烁（无障碍指南的加载反馈要求）
@@ -207,9 +211,14 @@ export default function DailyPage() {
             </div>
             <div className="text-[15px] font-semibold text-fg">{c.npc.commentary}</div>
             {c.npc.rationale && <p className="text-xs text-dim">{c.npc.rationale}</p>}
-            {c.npc.degraded && (
-              <p className="text-xs text-dim">（{degradedLabel(c.npc.degradedReason)}）</p>
-            )}
+            {/* 固定一行状态位：pending 与 degraded 共用，模型替换时不跳版。
+                pending 只说明「正在生成」，绝不带降级文案。 */}
+            <p className="min-h-[1rem] text-xs" aria-live="polite">
+              {npcStatus === "pending" && <span className="text-accent">老师正在看你的错题…</span>}
+              {npcStatus === "degraded" && (
+                <span className="text-dim">（{degradedLabel(c.npc.degradedReason)}）</span>
+              )}
+            </p>
           </div>
         )}
 

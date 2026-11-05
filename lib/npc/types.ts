@@ -140,6 +140,16 @@ export interface NpcDecision {
   readonly questionOrder: readonly string[];
   /** 点评（降级时由模板生成）。 */
   readonly commentary: string;
+  /**
+   * 点评的三态：
+   * - `pending`：模板已先行展示，模型仍在生成（**不是失败**）；
+   * - `model`：模型台词；
+   * - `degraded`：模型确实失败，展示模板 + 降级原因。
+   *
+   * 可选：升级前的旧数据没有该字段，读取方按 `degraded` 推断
+   * （`degraded ? "degraded" : "model"`）。
+   */
+  readonly commentaryStatus?: "pending" | "model" | "degraded";
   /** 本次决策是否走了降级路径。 */
   readonly degraded: boolean;
   /** 降级原因（`degraded` 为 true 时必填）。 */
