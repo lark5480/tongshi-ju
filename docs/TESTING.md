@@ -13,7 +13,12 @@ npm run test:e2e      # Playwright 浏览器冒烟（自己起 dev，跑 e2e/ �
 ```
 
 `test:e2e` 会用 `playwright.config.ts` 里的 `webServer` 在 **3100 端口**起一个 `next dev`，
-跑完自动关掉；本机若已有服务在 3100 上会被复用（CI 里不复用）。
+跑完自动关掉。**端口被占用时直接报错、不再复用已有服务**：复用残留的旧 dev server 会让用例
+跑在旧构建上，表现为首轮 40s 看不到选项、换端口重跑又全过。清理占用进程，或用
+`E2E_PORT=3102 npm run test:e2e` 指定空闲端口即可。
+
+> trace 等失败产物按 run 落在 `test-results/<run-id>/`，两个 run 不会互相删除对方的产物
+> （曾经共用 `test-results/` 时出现过关闭阶段的 trace ENOENT）。
 
 > 没装 Playwright 自带浏览器时，可用 `PW_CHANNEL=msedge npm run test:e2e` 走已装的 Edge。
 > 产物目录已隔离（见 [`DEPLOYMENT.md`](DEPLOYMENT.md) §2.2），e2e / dev / build 不会互相覆盖。
@@ -210,6 +215,10 @@ npm run test:e2e
 
 这三条是测试侧必跑项；`typecheck` / `build` / `lint` / `format:check` 由 CI 的 `verify` 段执行，
 完整顺序见 `.github/workflows/ci.yml` 与 [`../AGENTS.md`](../AGENTS.md) §7。
+
+> CI 的 `Browser smoke` 带路径过滤：只改 `docs/**`、`*.md`、`content/**/*.json` 或 `e2e/**`
+> 的 PR 会跳过冒烟（`verify` 仍必跑）；动到 `lib/**`、`hooks/**`、`app/**`、`components/**`、
+> `types/**`、配置或脚本时一定会跑。规则在 `.github/workflows/ci.yml` 的 `changes` job。
 
 全绿再提交。改了 `lib/engine/*` 的**共享逻辑**时，
 确认客户端与服务端仍得到**逐题相同**的结果 —— 这是每日挑战的命门。

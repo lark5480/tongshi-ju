@@ -55,13 +55,70 @@ jobs:
       - name: Production build
         run: npm run build
 
+  # 判断这次改动是否值得跑浏览器冒烟。
+  # 只改文档 / 只改题库 JSON / 只改 e2e 自身的 PR 跳过 e2e；其余一律跑，
+  # 尤其是 lib / hooks / app / components / types —— 这些是冒烟的主要目标，不能排除。
+  changes:
+    name: Detect changed paths
+    runs-on: ubuntu-latest
+    outputs:
+      e2e: ${{ steps.filter.outputs.e2e }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Decide whether browser smoke is needed
+        id: filter
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            git fetch --no-tags origin "${{ github.base_ref }}"
+            CHANGED=$(git diff --name-only "origin/${{ github.base_ref }}...HEAD")
+          else
+            BEFORE="${{ github.event.before }}"
+            if [ -z "$BEFORE" ] || [ "$BEFORE" = "0000000000000000000000000000000000000000" ]; then
+              CHANGED=$(git show --name-only --pretty=format: "${{ github.sha }}")
+            else
+              CHANGED=$(git diff --name-only "$BEFORE" "${{ github.sha }}")
+            fi
+          fi
+
+          # 空改动（比如只有 tag/手动触发）按「要跑」处理，宁可多跑一次。
+          if [ -z "$CHANGED" ]; then
+            echo "e2e=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          NEED=0
+          while IFS= read -r file; do
+            [ -z "$file" ] && continue
+            case "$file" in
+              # 文档
+              docs/*|*.md) ;;
+              # 题库 JSON（content 下的 TS 索引/校验仍算代码，会跑冒烟）
+              content/*.json|content/*/*.json) ;;
+              # e2e 用例自身
+              e2e/*) ;;
+              *) NEED=1 ;;
+            esac
+          done <<< "$CHANGED"
+
+          if [ "$NEED" = "1" ]; then
+            echo "e2e=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "e2e=false" >> "$GITHUB_OUTPUT"
+          fi
+
   # 浏览器冒烟：单测打到的是服务端与纯函数层，React 页面是盲区。
   # 已经咬过三口（单选题点不动 / duel 第 2 回合起选项永久禁用 / 多选确认作答静默失败），
   # 全部是"verify 全绿但玩家玩不了"。判据见 docs/TESTING.md §5.4。
   e2e:
     name: Browser smoke (Playwright)
     runs-on: ubuntu-latest
-    needs: verify
+    needs: [verify, changes]
+    if: needs.changes.outputs.e2e == 'true'
     env:
       # 与 playwright.config.ts 的 webServer.env 指向同一个目录：
       # 下面的 build 写这里，next start 读这里。
