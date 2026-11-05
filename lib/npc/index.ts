@@ -31,5 +31,5 @@ export {
 export { retrieveEpisodes } from "./core/retrieve";
 export { computeDomainWeights, decideNpc, orderQuestions, rankDomains } from "./core/policy";
 export { pickPracticeQuestion, type PracticePick } from "./core/practice";
-export { buildCommentary, pickWeakestDomain } from "./core/commentary";
+export { buildCommentary, pickWeakestDomain, resolveCommentaryStatus } from "./core/commentary";
 export { computeImportance, normalizeImportance, ruleImportance } from "./core/importance";

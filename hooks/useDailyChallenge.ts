@@ -67,11 +67,12 @@ import {
 } from "@/lib/storage";
 import {
   buildCoachContext,
+  buildPendingDecision,
   loadCoachEpisodes,
   recordCoachEvent,
   requestCoach,
 } from "@/lib/npc/client";
-import { buildAnswerEvent, pickPracticeQuestion } from "@/lib/npc";
+import { buildAnswerEvent, pickPracticeQuestion, resolveCommentaryStatus } from "@/lib/npc";
 import type { NpcContext, NpcDecision } from "@/lib/npc/types";
 
 export interface AnswerRecord {
@@ -188,6 +189,13 @@ export function useDailyChallenge(): DailyChallengeState {
   /** 上一题抢先答对的领域（跨域连击判定）。 */
   const lastWinDomainRef = useRef<DomainId | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  /**
+   * 点评请求序号。
+   *
+   * 开局那次请求可能比结算后那次更晚返回（模型耗时波动），
+   * 没有闸门就会用「一题未答」的旧统计覆盖结算复盘。
+   */
+  const npcSeqRef = useRef(0);
 
   const clearTimer = useCallback(() => {
     if (timerRef.current) {
@@ -195,6 +203,63 @@ export function useDailyChallenge(): DailyChallengeState {
       timerRef.current = null;
     }
   }, []);
+
+  /**
+   * 按**最新事实**重新生成点评并覆盖当日会话。
+   *
+   * 分两步，保证「结算页不空白、且说出的是最新成绩」：
+   * 1. **同步**用最新事实生成模板，标 `pending` 并立刻落盘（毫秒级可见）；
+   * 2. 模型返回后再覆盖为 `model` / `degraded` 并落盘（刷新读到最终结果）。
+   *
+   * 开局那份点评的事实是「一题未答」；结算后必须重算，否则面板会拿开局
+   * 的统计冒充当前成绩。
+   */
+  const refreshNpc = useCallback(async () => {
+    if (domains.length === 0) return;
+    const seq = ++npcSeqRef.current;
+    try {
+      const profile = getProfile();
+      const context = buildCoachContext({
+        userId: profile.name,
+        domains,
+        pool: {},
+        mastery: getMastery(),
+        wrongEntries: getWrongEntries().map((e) => ({
+          domain: e.domain,
+          wrongCount: e.wrongCount,
+        })),
+        history: getHistory().map((h) => ({
+          domains: h.domains,
+          correct: h.correct,
+          total: h.total,
+        })),
+        seed: dailySeed(date, domains),
+        now: Date.now(),
+      });
+
+      // ---- 1) 模板先行：同步展示（三态 = pending），不是降级 ----
+      const pending = buildPendingDecision(context);
+      setNpc(pending);
+      saveDailyNpc(date, pending);
+
+      // ---- 2) 模型回来后再替换 ----
+      const result = await requestCoach({
+        userId: profile.name,
+        domains,
+        facts: context.facts,
+        episodes: context.episodes,
+        seed: dailySeed(date, domains),
+        now: context.now,
+      });
+      // 已有更新的请求（例如刷新重建）→ 这次结果作废，不能覆盖新统计。
+      if (seq !== npcSeqRef.current) return;
+      setNpc(result.decision);
+      saveDailyNpc(date, result.decision);
+    } catch (error) {
+      // NPC 是增强：复盘失败不应影响结算结果。
+      console.warn("[daily] NPC 复盘不可用：", error);
+    }
+  }, [date, domains]);
 
   // ---- 初始化：确定领域 → 抽题 → 锁定当日题集 ----
   useEffect(() => {
@@ -266,12 +331,18 @@ export function useDailyChallenge(): DailyChallengeState {
         /**
          * 请求点评并**写回当日会话**。
          *
+         * 同样先同步展示模板（`pending`），模型回来再替换 —— 开局也不留空白面板。
          * 只 setNpc 不落盘的话，刷新 / 再次进入锁定会话点评就会消失
-         * （含 `degraded` 与降级原因）。
+         * （含三态与降级原因）。
          */
         const requestNpc = async (coachContext: NpcContext | null) => {
           if (!coachContext) return;
+          const seq = ++npcSeqRef.current;
           try {
+            const pending = buildPendingDecision(coachContext);
+            setNpc(pending);
+            saveDailyNpc(date, pending);
+
             const result = await requestCoach({
               userId: profile.name,
               domains: useDomains,
@@ -280,7 +351,9 @@ export function useDailyChallenge(): DailyChallengeState {
               seed: dailySeed(date, useDomains),
               now: coachContext.now,
             });
-            if (!cancelled) setNpc(result.decision);
+            // 结算后已发起新的复盘（seq 更大）→ 开局这份作废，避免覆盖最新统计。
+            if (cancelled || seq !== npcSeqRef.current) return;
+            setNpc(result.decision);
             saveDailyNpc(date, result.decision);
           } catch (error) {
             // NPC 是增强，不是主链路 —— 失败静默降级即可
@@ -317,7 +390,11 @@ export function useDailyChallenge(): DailyChallengeState {
               setIndex(0);
             }
             setLoading(false);
-            if (!locked.npc) void requestNpc(makeContext(pool));
+            // 缺失（旧会话）或落盘的是 `pending`（上次模型还没回来）→ 重新请求：
+            // 界面先显示已落盘的模板 + 生成中状态，回来后再替换。
+            if (!locked.npc || resolveCommentaryStatus(locked.npc) === "pending") {
+              void requestNpc(makeContext(pool));
+            }
             return;
           }
         }
@@ -627,9 +704,11 @@ export function useDailyChallenge(): DailyChallengeState {
         ...(practiceReason ? { practiceReason } : {}),
         ...(practiceRecord ? { practiceCorrect: practiceRecord.correct } : {}),
         ...(skippedPractice && practiceRecord === undefined ? { practiceSkipped: true } : {}),
-        // 结算会整体覆盖会话 —— 必须把已到手的点评一并带上，否则刷新后点评消失。
-        ...(npc ? { npc } : {}),
       });
+      // 开局点评的事实是「一题未答」，不能拿来冒充结算后的统计：
+      // 先清掉会话里的旧点评，再按最新事实重新生成并写回（刷新读到的是最后一份）。
+      setNpc(null);
+      void refreshNpc();
       bumpStreak(date);
       pushHistory({
         date,
@@ -645,7 +724,7 @@ export function useDailyChallenge(): DailyChallengeState {
         scoringVersion: SCORING_VERSION,
       });
     },
-    [records, questions, date, domains, mode, practiceReason, npc]
+    [records, questions, date, domains, mode, practiceReason, refreshNpc]
   );
 
   /** 进入下一题；最后一题则结算。 */

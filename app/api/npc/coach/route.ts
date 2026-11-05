@@ -87,7 +87,13 @@ export async function POST(req: Request) {
   const provider = getProvider();
   const result = await narrate({
     context,
-    model: provider ? { name: provider.name, generate: provider.generate.bind(provider) } : null,
+    model: provider
+      ? {
+          name: provider.name,
+          generate: provider.generate.bind(provider),
+          generateWithMeta: provider.generateWithMeta.bind(provider),
+        }
+      : null,
   });
 
   // 治理证据：即使降级也要返回可查的字段（裁决：N4 每次对话有治理证据）。

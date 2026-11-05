@@ -24,11 +24,18 @@ import {
   pickPracticeQuestion,
   pickWeakestDomain,
   rankDomains,
+  resolveCommentaryStatus,
   retrieveEpisodes,
   ruleImportance,
   toEpisode,
   updateFacts,
 } from "../lib/npc";
+import {
+  buildPendingDecision,
+  loadCoachEpisodes,
+  recordCoachEvent,
+  requestCoach,
+} from "../lib/npc/client";
 import { extractImportanceFromModel } from "../lib/npc/core/importance";
 import {
   buildNpcContext,
@@ -412,6 +419,254 @@ test("模型正常时：使用模型台词且不标降级", async () => {
   const result = await narrate({ context: ctx(), model: ok });
   assert.equal(result.degraded, false);
   assert.equal(result.decision.commentary, "多练 gaming 这个域。");
+});
+
+test("reply 键：LongCat 等模型的一句话说也能识别为台词", async () => {
+  const model = {
+    name: "reply-model",
+    generate: async () => ({ reply: "游戏 4 题错 3，今天先补它。" }),
+  };
+  const result = await narrate({ context: ctx(), model });
+  assert.equal(result.degraded, false);
+  assert.equal(result.decision.commentary, "游戏 4 题错 3，今天先补它。");
+});
+
+test("未知键名兜底：comment / 点评 也能提取台词", async () => {
+  const comment = {
+    name: "comment-model",
+    generate: async () => ({ comment: "先练游戏，4 题错 3。" }),
+  };
+  const chinese = {
+    name: "chinese-key-model",
+    generate: async () => ({ 点评: "今天先补科学。" }),
+  };
+  const a = await narrate({ context: ctx(), model: comment });
+  const b = await narrate({ context: ctx(), model: chinese });
+  assert.equal(a.degraded, false);
+  assert.equal(a.decision.commentary, "先练游戏，4 题错 3。");
+  assert.equal(b.degraded, false);
+  assert.equal(b.decision.commentary, "今天先补科学。");
+});
+
+test("空正文仍降级：调大 token 不能吞掉失败", async () => {
+  const empty = {
+    name: "empty-model",
+    generate: async () => ({ commentary: "   " }),
+  };
+  const result = await narrate({ context: ctx(), model: empty });
+  assert.equal(result.degraded, true);
+  assert.ok(result.degradedReason?.includes("空"), "降级原因必须说明正文为空");
+});
+
+test("finish_reason=length 且正文为空：按倍数追加额度重试一次", async () => {
+  const budgets: number[] = [];
+  const model = {
+    name: "retry-model",
+    generate: async () => ({ commentary: "不应走到这里" }),
+    generateWithMeta: async (_prompt: string, opts?: { maxTokens?: number }) => {
+      const maxTokens = opts?.maxTokens ?? 0;
+      budgets.push(maxTokens);
+      if (budgets.length === 1) {
+        return {
+          value: null,
+          meta: { finishReason: "length", contentEmpty: true, maxTokens },
+        };
+      }
+      return {
+        value: { reply: "重试后拿到台词。" },
+        meta: { finishReason: "stop", contentEmpty: false, maxTokens },
+      };
+    },
+  };
+  const result = await narrate({ context: ctx(), model });
+  assert.equal(result.degraded, false);
+  assert.equal(result.decision.commentary, "重试后拿到台词。");
+  // 基础额度 800，不足时翻倍到 1600 —— 不在各处硬编码另一个数
+  assert.deepEqual(budgets, [800, 1600]);
+});
+
+test("两次都思维链耗尽：降级原因写明 finish_reason=length", async () => {
+  const model = {
+    name: "always-length-model",
+    generate: async () => ({ commentary: "不应走到这里" }),
+    generateWithMeta: async (_prompt: string, opts?: { maxTokens?: number }) => {
+      const maxTokens = opts?.maxTokens ?? 0;
+      return { value: null, meta: { finishReason: "length", contentEmpty: true, maxTokens } };
+    },
+  };
+  const result = await narrate({ context: ctx(), model });
+  assert.equal(result.degraded, true);
+  assert.ok(result.degradedReason?.includes("思维链耗尽"), result.degradedReason);
+  assert.ok(result.degradedReason?.includes("1600"), result.degradedReason);
+});
+
+// ---------------------------------------------------------------- 点评三态
+
+test("点评三态：缺省按 degraded 推断，pending 不冒充失败", () => {
+  assert.equal(
+    resolveCommentaryStatus(decideNpc({ context: ctx(), commentary: "模型台词" })),
+    "model"
+  );
+  const degraded = decideNpc({
+    context: ctx(),
+    commentary: "模板",
+    degraded: true,
+    degradedReason: "原因",
+  });
+  assert.equal(resolveCommentaryStatus(degraded), "degraded");
+  // 升级前的旧数据没有 commentaryStatus：只能按 degraded 推断。
+  assert.equal(resolveCommentaryStatus({ degraded: true }), "degraded");
+  assert.equal(resolveCommentaryStatus({ degraded: false }), "model");
+
+  // 模板先行用的是**最新事实**（答 5 错 1），不是开局那份空统计。
+  const facts: NpcFacts = {
+    ...emptyFacts(),
+    attemptCounts: { gaming: 3, tech: 2 },
+    wrongCounts: { gaming: 1 },
+    mastery: { gaming: 2, tech: 1 },
+    touchedDomains: 2,
+  };
+  const pending = buildPendingDecision(ctx({ facts }));
+  assert.equal(pending.commentaryStatus, "pending");
+  assert.equal(pending.degraded, false, "模板先行不等于降级");
+  assert.ok(pending.rationale.includes("答 5 错 1"), pending.rationale);
+});
+
+test("替换时序：pending 同步可用，模型返回后替换为 model", async () => {
+  let release!: (res: Response) => void;
+  const gate = new Promise<Response>((resolve) => {
+    release = resolve;
+  });
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (() => gate) as typeof fetch;
+  try {
+    // 同步构造，不需要等模型 —— 结算页必须立刻有话。
+    const pending = buildPendingDecision(ctx());
+    assert.equal(pending.commentaryStatus, "pending");
+    assert.ok(pending.commentary.length > 0);
+
+    const pendingRequest = requestCoach({
+      userId: "u-seq",
+      domains: ["gaming", "tech"] as NpcContext["domains"],
+      facts: emptyFacts(),
+      episodes: [],
+      seed: 1,
+      now: NOW,
+    });
+    // 请求仍挂在 gate 上：此刻展示的是 pending，而不是降级。
+    assert.equal(pending.degraded, false);
+
+    release(
+      new Response(
+        JSON.stringify({
+          commentary: "模型台词：先补游戏。",
+          degraded: false,
+          rationale: "模型决策依据",
+          domainOrder: ["gaming", "tech"],
+          weights: { gaming: 1, tech: 0.5 },
+          provider: "stub",
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      )
+    );
+
+    const result = await pendingRequest;
+    assert.equal(result.degraded, false);
+    assert.equal(result.decision.commentaryStatus, "model");
+    assert.equal(result.decision.commentary, "模型台词：先补游戏。");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("失败才降级：HTTP 非 2xx / 网络失败都进入 degraded", async () => {
+  const originalFetch = globalThis.fetch;
+  try {
+    globalThis.fetch = (async () => new Response("boom", { status: 500 })) as typeof fetch;
+    const httpFail = await requestCoach({
+      userId: "u-fail",
+      domains: ["gaming"] as NpcContext["domains"],
+      facts: emptyFacts(),
+      episodes: [],
+      seed: 1,
+      now: NOW,
+    });
+    assert.equal(httpFail.decision.degraded, true);
+    assert.equal(resolveCommentaryStatus(httpFail.decision), "degraded");
+
+    globalThis.fetch = (async () => {
+      throw new Error("offline");
+    }) as typeof fetch;
+    const netFail = await requestCoach({
+      userId: "u-fail",
+      domains: ["gaming"] as NpcContext["domains"],
+      facts: emptyFacts(),
+      episodes: [],
+      seed: 1,
+      now: NOW,
+    });
+    assert.equal(netFail.decision.degraded, true);
+    assert.equal(resolveCommentaryStatus(netFail.decision), "degraded");
+    assert.ok(netFail.decision.commentary.length > 0, "降级也要有模板台词");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("模型可用性只看 provider：点评降级不阻止重要度升级", async () => {
+  const calls: string[] = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    const url = String(input);
+    calls.push(url);
+    if (url.endsWith("/api/npc/coach")) {
+      return new Response(
+        JSON.stringify({
+          commentary: "模板点评",
+          degraded: true,
+          degradedReason: "模型调用失败：AI 返回内容为空",
+          domainOrder: ["gaming"],
+          weights: { gaming: 1 },
+          provider: "openai-compatible:LongCat-2.5",
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      );
+    }
+    return new Response(JSON.stringify({ importance: 4, degraded: false }), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+  }) as typeof fetch;
+
+  try {
+    const result = await requestCoach({
+      userId: "u-provider",
+      domains: ["gaming"] as NpcContext["domains"],
+      facts: emptyFacts(),
+      episodes: [],
+      seed: 1,
+      now: NOW,
+    });
+    assert.equal(result.degraded, true);
+
+    await recordCoachEvent({
+      userId: "u-provider",
+      event: event({ questionId: "prov-1" }),
+      facts: emptyFacts(),
+    });
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+
+  assert.ok(
+    calls.some((url) => url.endsWith("/api/npc/importance")),
+    "provider 存在时必须请求重要度，即使点评本身降级"
+  );
+  const episodes = loadCoachEpisodes("u-provider");
+  assert.equal(episodes.length, 1);
+  assert.equal(episodes[0]!.importance, 4);
+  assert.equal(episodes[0]!.importanceSource, "model");
+  assert.equal(episodes[0]!.importanceDegraded, false);
 });
 
 test("降级点评：随事实变化（不同域 → 不同话）", () => {

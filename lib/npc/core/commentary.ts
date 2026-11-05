@@ -11,7 +11,7 @@
 
 import type { DomainId } from "@/types";
 
-import type { NpcContext } from "../types";
+import type { NpcContext, NpcDecision } from "../types";
 import { domainName } from "@/content/domains";
 import { MASTERY_FULL_MARKS, rankDomains } from "./policy";
 
@@ -25,6 +25,18 @@ import { MASTERY_FULL_MARKS, rankDomains } from "./policy";
  */
 export function pickWeakestDomain(context: NpcContext): DomainId | undefined {
   return rankDomains(context)[0];
+}
+
+/**
+ * 点评三态的唯一读取口径。
+ *
+ * 旧数据没有 `commentaryStatus`：按 `degraded` 推断 ——
+ * 降级即 `degraded`，否则视为模型台词（升级前的成功路径只可能是模型）。
+ */
+export function resolveCommentaryStatus(
+  decision: Pick<NpcDecision, "degraded" | "commentaryStatus">
+): "pending" | "model" | "degraded" {
+  return decision.commentaryStatus ?? (decision.degraded ? "degraded" : "model");
 }
 
 /**

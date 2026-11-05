@@ -125,6 +125,8 @@ export function decideNpc(params: {
   readonly commentary: string;
   readonly degraded?: boolean;
   readonly degradedReason?: string;
+  /** 点评三态；缺省按 `degraded` 推断（降级 / 模型台词）。 */
+  readonly commentaryStatus?: "pending" | "model" | "degraded";
 }): NpcDecision {
   const { context } = params;
   const weights = computeDomainWeights(context);
@@ -138,12 +140,15 @@ export function decideNpc(params: {
 
   const rationale = buildRationale(context, weights, domainOrder, focusDomain);
 
+  const degraded = params.degraded ?? false;
   return {
     domainOrder,
     weights,
     questionOrder,
     commentary: params.commentary,
-    degraded: params.degraded ?? false,
+    degraded,
+    // 三态的唯一推断口径：旧数据 / 未显式传入时，降级即 degraded，否则 model。
+    commentaryStatus: params.commentaryStatus ?? (degraded ? "degraded" : "model"),
     ...(params.degradedReason ? { degradedReason: params.degradedReason } : {}),
     rationale,
   };
@@ -159,8 +164,10 @@ function buildRationale(
   focusDomain: DomainId | undefined
 ): string {
   if (!focusDomain) return "无可用领域";
-  const attempts = context.facts.attemptCounts[focusDomain] ?? 0;
-  const wrongs = context.facts.wrongCounts[focusDomain] ?? 0;
+  // 答题/错题展示**全局累计**：面板要能回答「我今天答了几题、错了几题」，
+  // 只写焦点域会出现「答完 5 题却显示答 2」的错位。
+  const attempts = Object.values(context.facts.attemptCounts).reduce((sum, n) => sum + n, 0);
+  const wrongs = Object.values(context.facts.wrongCounts).reduce((sum, n) => sum + n, 0);
   const mastery = context.facts.mastery[focusDomain] ?? 0;
   const parts = [
     `聚焦 ${domainName(focusDomain)}（权重 ${(weights[focusDomain] ?? 0).toFixed(2)}）`,

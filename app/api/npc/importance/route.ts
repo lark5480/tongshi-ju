@@ -59,10 +59,23 @@ export async function POST(req: Request) {
   }
 
   try {
-    const raw = await provider.generate(buildPrompt(input), { maxTokens: 60 });
-    const importance = extractImportanceFromModel(raw);
+    // reasoning 模型会把思维链算进 max_tokens：基础额度不足时按倍数追加重试。
+    const prompt = buildPrompt(input);
+    const BASE_TOKENS = 600;
+    let generation = await provider.generateWithMeta(prompt, { maxTokens: BASE_TOKENS });
+    let importance = extractImportanceFromModel(generation.value);
+    if (importance === null && generation.meta.finishReason === "length") {
+      generation = await provider.generateWithMeta(prompt, {
+        maxTokens: generation.meta.maxTokens * 2,
+      });
+      importance = extractImportanceFromModel(generation.value);
+    }
     if (importance === null) {
-      throw new Error("模型返回内容不含可解析的重要度");
+      throw new Error(
+        generation.meta.finishReason === "length"
+          ? `思维链耗尽：finish_reason=length（max_tokens=${generation.meta.maxTokens}）`
+          : "模型返回内容不含可解析的重要度"
+      );
     }
     return ok({ importance, degraded: false, degradedReason: null });
   } catch (error) {
