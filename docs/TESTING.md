@@ -205,6 +205,19 @@ npm run validate:content
 
 退出码 0 = 通过，1 = 有阻断级错误。CI 会跑它。
 
+`content/ai/*.json` 也参与校验：id / 指纹与 seed **跨目录唯一**、topic 白名单、
+答案命中选项、敏感词、同域近似查重；AI 题不套用「每域 ≥40 题」与难度分布警告。
+
+### 6.1 AI 内容链路的单测
+
+| 文件 | 钉住什么 |
+|---|---|
+| `__tests__/engine.daily.test.ts` | AI 题不进每日；批准 AI 题不改变每日题集；PK 口径显式放开后可选中 AI |
+| `__tests__/content.loader.test.ts` | 加载时注入 `origin`；空 AI 文件不破坏 seed 题 |
+| `__tests__/ai.pending.test.ts` | approve 重新查重 / 批内重复 / id 冲突不覆盖；IO 往返；非法 batchId 不出目录 |
+| `__tests__/ai.generate.test.ts` | fake provider：合法批次、非法 JSON、与 seed 重复、topic 白名单前置 |
+| `__tests__/npc.safety.test.ts` | topic 白名单清洗；输出敏感词 / 注入 / 超长降级；降级文案不把安全过滤说成调用失败 |
+
 ---
 
 ## 7. 提交前的检查清单

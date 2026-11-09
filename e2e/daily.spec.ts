@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 
-import { findQuestion } from "@/lib/content/server-bank";
+import { findAnyQuestion } from "@/lib/content/server-bank";
 import { advance, answerCurrentQuestion, expectRound } from "./helpers";
 
 /** 4+1 分轨：前 4 题是全网同题的公共题，第 5 题是个人加练（不计分）。 */
@@ -44,8 +44,8 @@ async function expectPracticePanel(page: Page): Promise<void> {
  * 答案不在客户端会话里，只能从服务端题库按会话里的题目 id 反查。
  */
 async function answerPracticeCorrectly(page: Page, questionId: string): Promise<void> {
-  const question = findQuestion(questionId);
-  if (!question) throw new Error(`题库里找不到第 5 题 ${questionId}`);
+  const question = findAnyQuestion(questionId);
+  if (!question) throw new Error(`题库（seed + AI）里找不到第 5 题 ${questionId}`);
   await expect(page.locator("h2").first()).toHaveText(question.stem);
 
   const answers = Array.isArray(question.answer) ? question.answer : [question.answer];

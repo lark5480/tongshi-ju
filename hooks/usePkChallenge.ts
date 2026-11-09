@@ -154,7 +154,9 @@ export function usePkChallenge(): PkState {
           domains: resolved.domains,
           pool,
           seed: resolved.seed,
-          // PK 与每日共用同一套轮转，但 seed 含日期 + 房间码，仍保证同码同题
+          // PK 与每日共用同一套轮转，但 seed 含日期 + 房间码，仍保证同码同题。
+          // 来源显式放开 AI：AI 题不参与红榜，也不进每日/duel。
+          allowedOrigins: ["seed", "ai"],
           schedule: "cycle",
         });
         if (picks.length === 0) {

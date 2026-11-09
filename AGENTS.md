@@ -26,6 +26,12 @@ Next.js 14 (App Router) · React 18 · TypeScript 5.5 · Tailwind 3 · SSE
 客户端与 duel 服务端共用同一份实现；**不得**改成服务端保存当天题集。
 **AI 题永不进入每日挑战。**
 
+**来源分轨（执行机制）。** 题目运行时带 `origin: "seed" | "ai"`：
+每日挑战与 duel 只取 `seed`（`buildDailySet` 默认 `allowedOrigins: ["seed"]`）；
+PK / 错题复习 / 第 5 题加练可取 `ai`。已审核的 AI 题存放在 `content/ai/<domain>.json`，
+入库前必须经人工审核与 `npm run validate:content`。**批准 AI 题不得改变任何一天的每日题集**
+（`__tests__/engine.daily.test.ts` 的不变量钉住）。
+
 **破例条款：第 5 题是个人加练题。** 它由老师 NPC 依据本人熟练度从题库另选
 （`lib/npc/core/practice.ts`），**不计分、不计排名、不影响 duel/PK**，
 作答只写学习进度，并在事件里标注 `source: "practice"`。
@@ -77,6 +83,9 @@ Next.js 14 (App Router) · React 18 · TypeScript 5.5 · Tailwind 3 · SSE
 3. **不静默降级** —— 模型不可用 / 超时 / 失败 → 模板点评 + `degraded: true` + 原因，
    且降级信息要**显式出现在界面上**。悄悄换个策略假装无事发生，等于报告里的降级信息是假的。
 
+**AI 生成题属于内容层，不属于 NPC 决策**：审核入库的 AI 题只改变 PK / 错题复习 / 加练的题池，
+不改变 4+1 计分、前 4 题与 duel。把「AI 题进 PK」理解成「NPC 改了引擎」是误读。
+
 ---
 
 ## 3. 目录速查
@@ -92,6 +101,7 @@ lib/ai/       provider / prompt / 校验
 lib/content/  指纹 / 题库加载 / 敏感词
 lib/npc/      老师 NPC：纯函数内核 + 台词层 + 接入层（只读引擎，详见 docs/NPC-ARCHITECTURE.md）
 content/domains/  12 域元数据 + 题库 JSON
+content/ai/       已人工审核入库的 AI 题池（加载时注入 origin: "ai"）
 __tests__/    单元测试；e2e/ Playwright 冒烟；scripts/ 内容校验
 docs/         长文（索引见 §5）
 ```
@@ -147,6 +157,8 @@ npm run lint && npm run format:check
    `docs/research/` 是带日期的一次性快照，只作时点证据，不回改。
 5. **文档分层** —— 人类入口 `README.md`、AI 入口 `AGENTS.md`、长文与规则 `docs/`；
    改完跑 `npm run format:check` 与链接检查。
+6. **文档与红线随机制同步** —— 代码改动了约束/口径，就在同一改动里更新 `AGENTS.md` 与对应 `docs/`；
+   红线与新机制冲突时先改文档再改代码，禁止文档说一套、代码做一套。
 
 ---
 

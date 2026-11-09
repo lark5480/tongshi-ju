@@ -8,7 +8,11 @@ import type { DomainId, Question, WrongEntry } from "../types";
 const NOW = 1_700_000_000_000;
 const DAY_MS = 86400000;
 
-function question(id: string, domain: DomainId = "gaming"): Question {
+function question(
+  id: string,
+  domain: DomainId = "gaming",
+  origin: Question["origin"] = "seed"
+): Question {
   return {
     id,
     domain,
@@ -19,7 +23,7 @@ function question(id: string, domain: DomainId = "gaming"): Question {
     options: ["A", "B"],
     answer: "A",
     explanation: "",
-    origin: "seed",
+    origin,
     fingerprint: id,
   };
 }
@@ -30,6 +34,16 @@ function entry(questionId: string, nextDueAt: number, domain: DomainId = "gaming
     nextDueAt,
   };
 }
+
+test("题池里的 AI 题也能进入错题复习", () => {
+  const entries = [entry("gaming-ai-00000001", NOW - 1)];
+  const pool = { gaming: [question("gaming-ai-00000001", "gaming", "ai")] };
+  const picks = buildPracticeSet(entries, pool, NOW);
+  assert.deepEqual(
+    picks.map((p) => p.question.id),
+    ["gaming-ai-00000001"]
+  );
+});
 
 test("只包含到期条目：未到期的错题不进入练习", () => {
   const entries = [entry("gaming-0001", NOW - 1), entry("gaming-0002", NOW + DAY_MS)];

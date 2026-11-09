@@ -1,0 +1,15 @@
+node_modules
+.next
+.next-*
+.git
+.github
+.ai-pending
+.tmp-run
+.env
+.env.*
+!.env.example
+cloudflared.exe
+*.tsbuildinfo
+test-results
+playwright-report
+blob-report

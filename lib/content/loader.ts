@@ -27,8 +27,16 @@ export interface QuestionFileEntry {
   source?: { title: string; url?: string };
 }
 
+/** 已人工审核入库的 AI 题：比 seed 多 `batchId` / `reviewedAt`。 */
+export interface AiQuestionFileEntry extends QuestionFileEntry {
+  batchId: string;
+  reviewedAt: string;
+  variantOf?: string;
+}
+
 /** JSON 模块的默认导出形态。 */
 type QuestionModule = { default: { domain: DomainId; questions: QuestionFileEntry[] } };
+type AiQuestionModule = { default: { domain: DomainId; questions: AiQuestionFileEntry[] } };
 
 const LOADERS: Record<DomainId, () => Promise<QuestionModule>> = {
   gaming: () => import("@/content/domains/gaming.json") as Promise<QuestionModule>,
@@ -45,6 +53,27 @@ const LOADERS: Record<DomainId, () => Promise<QuestionModule>> = {
   travel: () => import("@/content/domains/travel.json") as Promise<QuestionModule>,
 };
 
+/**
+ * AI 题加载器 —— 与 seed 分开动态加载。
+ *
+ * 每日挑战只加载选中的 3 个域，AI 题同样按域懒加载；批准入库的 AI 题只影响
+ * PK / 错题复习 / 第 5 题加练，不会进入每日题集（由 `buildDailySet` 的来源过滤保证）。
+ */
+const AI_LOADERS: Record<DomainId, () => Promise<AiQuestionModule>> = {
+  gaming: () => import("@/content/ai/gaming.json") as Promise<AiQuestionModule>,
+  anime: () => import("@/content/ai/anime.json") as Promise<AiQuestionModule>,
+  auto: () => import("@/content/ai/auto.json") as Promise<AiQuestionModule>,
+  tech: () => import("@/content/ai/tech.json") as Promise<AiQuestionModule>,
+  mobile: () => import("@/content/ai/mobile.json") as Promise<AiQuestionModule>,
+  life: () => import("@/content/ai/life.json") as Promise<AiQuestionModule>,
+  coding: () => import("@/content/ai/coding.json") as Promise<AiQuestionModule>,
+  history: () => import("@/content/ai/history.json") as Promise<AiQuestionModule>,
+  film: () => import("@/content/ai/film.json") as Promise<AiQuestionModule>,
+  science: () => import("@/content/ai/science.json") as Promise<AiQuestionModule>,
+  literature: () => import("@/content/ai/literature.json") as Promise<AiQuestionModule>,
+  travel: () => import("@/content/ai/travel.json") as Promise<AiQuestionModule>,
+};
+
 /** 把磁盘形态转换为运行时完整题目。 */
 export function hydrate(
   domain: DomainId,
@@ -59,10 +88,13 @@ export function hydrate(
   }));
 }
 
-/** 加载单个领域的全部题目。 */
+/** 加载单个领域的全部题目（seed + 已审核 AI 题）。 */
 export async function loadDomainQuestions(domain: DomainId): Promise<Question[]> {
-  const mod = await LOADERS[domain]();
-  return hydrate(domain, mod.default?.questions ?? []);
+  const [seed, ai] = await Promise.all([LOADERS[domain](), AI_LOADERS[domain]()]);
+  return [
+    ...hydrate(domain, seed.default?.questions ?? []),
+    ...hydrate(domain, ai.default?.questions ?? [], "ai"),
+  ];
 }
 
 /** 批量加载多个领域，合并为一个题池。 */

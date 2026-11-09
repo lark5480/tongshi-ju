@@ -1,5 +1,10 @@
 node_modules
 .next
+.next-dev
+.next-dev-*
+.next-e2e
+.next-online
+.ai-pending
 out
 coverage
 package-lock.json

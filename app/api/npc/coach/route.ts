@@ -24,6 +24,7 @@ import { z } from "zod";
 
 import { buildCommentary, pickWeakestDomain } from "@/lib/npc/core/commentary";
 import { narrate } from "@/lib/npc";
+import { sanitizeDomains, sanitizeEpisodes } from "@/lib/npc/sanitize";
 import type { NpcContext } from "@/lib/npc/types";
 
 export const dynamic = "force-dynamic";
@@ -45,7 +46,7 @@ const npcCoachSchema = z.object({
       z.object({
         questionId: z.string().min(1),
         domain: z.string().min(1),
-        topic: z.string(),
+        topic: z.string().max(200),
         difficulty: z.number().int().min(1).max(3),
         correct: z.boolean(),
         /** 作答来源：公共题 / 第 5 题加练（旧条目缺省按 public 处理）。 */
@@ -82,13 +83,21 @@ export async function POST(req: Request) {
   }
   const input = parsed.data;
 
+  // 输入清洗：只保留合法领域与命中白名单的 topic。
+  // episode.topic 会进入 prompt，任意文本等于把 prompt 注入面交给客户端。
+  const domains = sanitizeDomains(input.domains);
+  if (domains.length === 0) {
+    return fail("domains 不合法", 400, "invalid_input");
+  }
+  const episodes = sanitizeEpisodes(input.episodes as NpcContext["episodes"]);
+
   // 题池在服务端不参与点评（台词只需要事实摘要），故传空池。
   const context: NpcContext = {
     userId: input.userId,
-    domains: input.domains as NpcContext["domains"],
+    domains,
     pool: {},
     facts: input.facts,
-    episodes: input.episodes as NpcContext["episodes"],
+    episodes,
     seed: input.seed,
     now: input.now,
     ...(input.promise ? { promise: input.promise as NpcContext["promise"] } : {}),

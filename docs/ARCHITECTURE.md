@@ -19,7 +19,8 @@
 │ lib/content/    指纹 / 题库加载 / 服务端题库             │
 │ lib/storage.ts  localStorage 安全封装（客户端）           │
 ├─────────────────────────────────────────────────────────┤
-│ content/domains/  12 域元数据 + 12 个题库 JSON           │
+│ content/domains/  seed 题库（12 域）                     │
+│ content/ai/       已人工审核入库的 AI 题池（按域）       │
 └─────────────────────────────────────────────────────────┘
 ```
 
@@ -190,28 +191,47 @@ data: <json>
 ## 6. 内容管线
 
 ```
-content/domains/<id>.json  （磁盘紧凑格式）
-        │  lib/content/loader.ts 注入 domain / origin / fingerprint
-        ▼
-Question[]  （运行时完整格式）
+content/domains/<id>.json  （seed，磁盘紧凑格式） ─┐
+content/ai/<id>.json       （已审核 AI 题）        ─┤
+                                                     │ loader 注入 domain / origin / fingerprint
+                                                     ▼
+                                              Question[]
+                                                     │
+                       buildDailySet(allowedOrigins)  ← 每日/duel 默认 ["seed"]；PK 显式 ["seed","ai"]
+                                                     ▼
+                                              当日题集 / PK 题集
 ```
 
-磁盘格式、加载时注入的字段与指纹规则见 [`CONTENT.md`](CONTENT.md) §1、§7。
+- seed 与 AI 分目录存储，`origin` **加载时注入**（磁盘上不存）：见 [`CONTENT.md`](CONTENT.md) §1、§7。
+- `domainBank` / `bankPool` / `findQuestion` 保持 **seed-only**（duel 与每日天然隔离）；
+  `aiBank` 供 PK / 错题复习 / 第 5 题加练。
+- `findAnyQuestion` 供脚本 / e2e 按 id 反查 seed + AI；不参与 duel 与每日抽题。
+- 每日不变量：批准 AI 题**不得改变任何一天的每日题集**，由 `__tests__/engine.daily.test.ts` 钉住。
+- PK 的「同码同题」以双方运行**同一构建**为前提；AI 题入库会改变 PK 题序，每日/duel 不受影响。
 
-实现：`lib/content/fingerprint.ts` · `lib/content/loader.ts`
+实现：`lib/content/fingerprint.ts` · `lib/content/loader.ts` · `lib/content/server-bank.ts`
 
 ---
 
 ## 7. AI 出题
 
 ```
-provider（OpenAI 兼容 / Ollama）→ prompt → 校验链 → 待审池
+provider（OpenAI 兼容 / Ollama）→ prompt → 10 步校验链
+                                             │
+                                             ▼
+                               .ai-pending/<batchId>.json（本地）
+                                             │ npm run ai:review approve --write
+                                             ▼
+                               content/ai/<domain>.json（人工审核后入库）
 ```
 
+- 生成逻辑唯一入口：`lib/ai/generate.ts`（HTTP 路由与审核 CLI 共用）；
+- 待审池是本地目录（已 gitignore），不存 Key / prompt；批准时重新查重，冲突不覆盖；
+- API 写盘失败返回 `pendingPersisted: false`，生成结果仍可用；
 - 校验链细节与内容侧流程见 [`CONTENT.md`](CONTENT.md) §8；
 - 配置与鉴权见 [`DEPLOYMENT.md`](DEPLOYMENT.md) §3、[`API.md`](API.md) §4；
 - 未配置 provider → **503**，主链路完全不受影响；
-- 每日挑战题源边界见 [`../AGENTS.md`](../AGENTS.md) §2.1。
+- AI 题**不进每日/duel**，只进 PK / 错题复习 / 第 5 题加练；边界见 [`../AGENTS.md`](../AGENTS.md) §2.1。
 
 ---
 
@@ -235,3 +255,4 @@ provider（OpenAI 兼容 / Ollama）→ prompt → 校验链 → 待审池
 | 5 | **无账号体系、无跨设备同步** | 档案 / 错题 / 战绩 / 影子 / 段位全在 localStorage，换浏览器或清缓存即丢；这是零服务端成本的取舍。 |
 | 6 | **npm 12 会拦 `esbuild` / `unrs-resolver` 的 install scripts** | 已实测 `tsx` 与 `node --import tsx --test` 正常工作，不影响工具链。 |
 | 7 | **发布后新旧题集可能并存一天** | 当日 `DailySession.questionIds` 已锁定的用户保留旧题集，新用户/无 session 用户走新调度；**接受新旧题混用一天，不强制刷新**。PK 同码同日仍同题，但旧标签页可能与新客户端算出不同题 —— 发布时统一提示刷新一次页面（见 [`DEPLOYMENT.md`](DEPLOYMENT.md) §1.2）。 |
+| 8 | **AI 题与 PK 有版本依赖** | PK 是本地确定性玩法，同码同题以双方运行同一构建为前提；批准 AI 题会改变 PK 题序。每日/duel 只取 seed，不受影响。 |

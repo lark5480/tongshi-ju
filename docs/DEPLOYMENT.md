@@ -213,10 +213,28 @@ curl -X POST https://<域名>/api/ai/generate \
   -d '{"domain":"gaming","topic":"经典作品","difficulty":2,"count":5}'
 ```
 
-返回的 `accepted` 题目处于 **`status: "pending"`（待审池）**，
-需要人工抽检后才可写入 `content/domains/<id>.json` 进入正式题库。
+返回的 `accepted` / `rejected` 会写入 `.ai-pending/<batchId>.json`（本地目录，已 gitignore；
+可用 `AI_PENDING_DIR` 覆盖）。若环境只读，响应里 `pendingPersisted: false`，生成结果仍可用。
 
-> 每日挑战题源边界见 [`../AGENTS.md`](../AGENTS.md) §2.1。
+人工审核（默认 dry-run，`--write` 才落盘）：
+
+```bash
+npm run ai:review -- list
+npm run ai:review -- show <batchId>
+npm run ai:review -- approve <batchId> --write
+npm run validate:content
+```
+
+批准后写入 `content/ai/<domain>.json`。AI 题只进 PK / 错题复习 / 第 5 题加练，
+**不进每日挑战 / duel**。
+
+也可以跳过 HTTP，直接在本地生成：
+
+```bash
+npm run ai:review -- gen --domain gaming --count 2
+```
+
+> 每日挑战题源边界见 [`../AGENTS.md`](../AGENTS.md) §2.1；产线细节见 [`CONTENT.md`](CONTENT.md) §8。
 
 ---
 
@@ -243,3 +261,40 @@ curl -X POST https://<域名>/api/ai/generate \
   `docs/research/` 是带日期的一次性快照，只作时点证据，不回改；
 - 云轨回滚：平台侧切回上一个部署版本即可（无状态，无需数据迁移）；
 - 本地轨回滚：`git checkout` 到旧 tag 后重新 `npm run build && npm start`。
+
+---
+
+## 六、容器部署（长驻 Node）
+
+duel 的房间状态在进程内存，SSE 是长连接：**单副本运行，不要水平扩容**。
+容器里的 Next 生产构建与本地 `npm run build && npm start` 完全一致。
+
+```bash
+docker build -t tongshi-ju .
+docker run --rm -p 3000:3000 \
+  --env-file .env.local \
+  -v /path/to/.ai-pending:/app/.ai-pending \
+  tongshi-ju
+curl http://localhost:3000/api/health
+```
+
+- 环境变量：`AI_API_BASE` / `AI_API_KEY` / `AI_MODEL` / `AI_ADMIN_TOKEN`；
+  待审池默认 `.ai-pending/`，可用 `AI_PENDING_DIR` 指向挂载卷。
+- 镜像不包含 `.env*` 与 `.ai-pending/`（见 `.dockerignore`）；密钥只从运行时环境注入。
+- 健康检查：`GET /api/health` 返回 `{ ok, version, aiConfigured }`，不泄露密钥。
+- ModelScope 创空间等 Docker 宿主可直接使用这份 `Dockerfile`；把平台端口指向 3000 即可。
+- 公开试玩时不要配置 `AI_ADMIN_TOKEN`（管理接口只在 development 可用），只开放读玩法。
+
+### 6.1 镜像自检（改 Dockerfile / 依赖后必跑）
+
+```bash
+docker build -t tongshi-ju .
+docker run --rm -d --name tsj-check -p 3000:3000 tongshi-ju
+curl -s http://localhost:3000/api/health   # 期望 ok:true；未配 AI 时 aiConfigured:false 属正常
+curl -s -o /dev/null -w "%{http_code}\n" http://localhost:3000/   # 期望 200
+docker logs tsj-check
+docker stop tsj-check
+```
+
+- 不需要 AI 密钥即可构建与启动。
+- 需 Docker Desktop 处于运行状态；未运行时如实记录「镜像未验证」，不要写成已通过。

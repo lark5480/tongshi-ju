@@ -408,18 +408,23 @@ data: <json>
   "domain": "gaming",
   "accepted": [ /* 通过校验链的完整 Question，含 origin:"ai" / batchId / fingerprint */ ],
   "rejected": [ { "stem": "…", "reason": "near_duplicate", "detail": "…" } ],
-  "status": "pending"
+  "status": "pending",
+  "pendingPersisted": true,
+  "pendingError": null
 }
 ```
 
 > `accepted` + `rejected` 一起构成批次结果，二者**都**会返回。
-> **「待审池」目前只是响应里的 `status: "pending"`** —— 服务端不落盘、不入库，
-> 需要调用方自行保存结果再人工转入 `content/domains/<id>.json`（运营界面见 PRD §11.2）。
+> 服务端会把整批写入 `.ai-pending/<batchId>.json`（本地目录，已 gitignore）。
+> `pendingPersisted: false` 表示当前环境只读（如 Serverless），此时结果只在响应里，
+> 调用方需自行保存；`pendingError` 给出原因。
+> 人工审核用 `npm run ai:review`（`list` / `show` / `approve --write`），
+> 通过后写入 `content/ai/<id>.json`；见 [`CONTENT.md`](CONTENT.md) §8。
 
 **错误**：`invalid_input`(400) / `unauthorized`(401) / `ai_disabled`(503) / `ai_failed`(502) / 限流 429
 
-**通过校验链**的题目**只进待审池**，不直接进正式题库；题源边界见
-[`../AGENTS.md`](../AGENTS.md) §2.1。
+**通过校验链**的题目**只进待审池**，不直接进正式题库；AI 题**不进每日/duel**，
+只可用于 PK / 错题复习 / 第 5 题加练；题源边界见 [`../AGENTS.md`](../AGENTS.md) §2.1。
 
 校验链顺序与批次内查重规则见 [`CONTENT.md`](CONTENT.md) §8。
 
@@ -434,6 +439,15 @@ data: <json>
 **降级口径（重要）**：未配置 provider / 模型超时 / 抛错 / 返回非法内容
 → **仍然返回 200**，响应体带 `degraded: true` 与 `degradedReason`。
 **不是 503** —— 这是预期内的降级路径，用 5xx 会让调用方误判成服务故障。
+
+**输入清洗**：`domains` 只保留合法领域；`episodes[].topic` 必须命中该域白名单，
+否则该条记忆被丢弃，不会进入 prompt（防止客户端把任意文本塞进提示词）。
+
+**降级原因**除「未配置 / 调用失败」外，还包括模型输出被安全过滤：
+`模型输出未通过内容安全检查（命中敏感词）`、
+`模型输出包含疑似提示注入内容`、
+`模型输出超长（输出 N 字，上限 M）`。
+界面文案由 `lib/npc/labels.ts` 统一映射，不能把它们显示成「调用失败」。
 
 **入参**
 

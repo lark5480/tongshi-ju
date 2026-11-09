@@ -359,8 +359,10 @@ PK 码、种子、领域与题集公式见 [`GAME-RULES.md`](GAME-RULES.md) §11
 
 - 支持 OpenAI 兼容 API 与 Ollama；未配置 provider 时接口返回 503，主链路不受影响；
 - 配置键见 [`.env.example`](../.env.example)，接口契约见 [`API.md`](API.md) §4；
-- 生成结果只进**待审池**（`status: "pending"`，服务端不落盘），
-  10 步校验链与人工入库流程见 [`CONTENT.md`](CONTENT.md) §8。
+- 生成结果写入本地**待审池** `.ai-pending/<batchId>.json`（已 gitignore）；
+  人工审核用 `npm run ai:review`（默认 dry-run，`--write` 才写入 `content/ai/`）；
+  10 步校验链与入库流程见 [`CONTENT.md`](CONTENT.md) §8。
+- AI 题只进 PK / 错题复习 / 第 5 题加练，**不进每日挑战 / duel**。
 
 **变体模式**：入参带 `variantOf`（原题 `questionId` / `stem` / `answer`）时改走变体 prompt，
 生成的题 `variantOf` 指向原题 id。**目前只有接口能力** ——
@@ -440,8 +442,9 @@ PK 码、种子、领域与题集公式见 [`GAME-RULES.md`](GAME-RULES.md) §11
 
 **P2 · 内容与运营，不做不影响正确性**
 
-- **待审池运营化**：AI 题目前只活在一句 `status: "pending"` 的响应里，服务端不落盘 ——
-  需要审核界面 + 入库流水线，否则这条管线只能靠人手工搬。
+- **待审池 Web 运营界面（可选）**：CLI 审核链路已落地（2026-11-09：`npm run ai:review`
+  的 `list / show / approve / reject / gen`，默认 dry-run）。暂不做 Web 界面；
+  若后续需要多人协作审核，再加。
 
 **P3 · 锦上添花，随时可推**
 
