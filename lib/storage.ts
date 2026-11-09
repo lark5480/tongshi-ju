@@ -130,6 +130,15 @@ export function saveProfile(patch: Partial<Profile>): Profile {
   return next;
 }
 
+/** 是否完成过首次引导（只控制首页是否展示首启卡，不影响玩法）。 */
+export function hasOnboarded(): boolean {
+  return readJson<boolean>("onboarded", false);
+}
+
+export function markOnboarded(): void {
+  writeJson("onboarded", true);
+}
+
 // ---------------------------------------------------------------- 每日挑战
 
 export function getDailySession(date: string): DailySession | null {

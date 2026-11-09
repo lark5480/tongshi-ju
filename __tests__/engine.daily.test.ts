@@ -35,6 +35,24 @@ function makePool(domains: DomainId[], perDomain: number): Partial<Record<Domain
   return pool;
 }
 
+/** 构造一道 AI 题（来源标记为 ai，供分轨测试）。 */
+function makeAiQuestion(domain: DomainId, i: number): Question {
+  return {
+    id: `${domain}-ai-${(i + 1).toString(16).padStart(8, "0")}`,
+    domain,
+    topic: "T",
+    difficulty: 2,
+    type: "single",
+    stem: `AI 题目 ${domain} ${i}`,
+    options: ["A", "B", "C", "D"],
+    answer: "A",
+    explanation: "解析",
+    origin: "ai",
+    batchId: "ai-test",
+    fingerprint: `ai-${i}`,
+  };
+}
+
 const DOMS: DomainId[] = ["gaming", "tech", "life"];
 
 test("同一天 + 同一组领域 → 同一份题集（确定性）", () => {
@@ -78,6 +96,49 @@ test("默认题数为 5", () => {
   const pool = makePool(DOMS, 40);
   const picks = buildDailySet({ dateKey: "2026-10-20", domains: DOMS, pool });
   assert.equal(picks.length, DEFAULT_DAILY_COUNT);
+});
+
+test("AI 题默认不进入每日题集（来源过滤默认 seed）", () => {
+  const pool = makePool(DOMS, 40);
+  pool.gaming = [...(pool.gaming ?? []), makeAiQuestion("gaming", 0)];
+  const picks = buildDailySet({ dateKey: "2026-10-20", domains: DOMS, pool });
+  assert.ok(
+    picks.every((p) => p.question.origin === "seed"),
+    "每日题集不应出现 AI 题"
+  );
+});
+
+test("AI 题入库不改变同一天的每日题集", () => {
+  const base = makePool(DOMS, 40);
+  const before = buildDailySet({ dateKey: "2026-10-20", domains: DOMS, pool: base });
+  const withAi: Partial<Record<DomainId, Question[]>> = {
+    ...base,
+    gaming: [...(base.gaming ?? []), makeAiQuestion("gaming", 0), makeAiQuestion("gaming", 1)],
+  };
+  const after = buildDailySet({ dateKey: "2026-10-20", domains: DOMS, pool: withAi });
+  assert.deepEqual(
+    after.map((p) => p.question.id),
+    before.map((p) => p.question.id),
+    "批准 AI 题不得改变每日题集"
+  );
+});
+
+test("PK 口径显式放开来源后可选到 AI 题", () => {
+  const pool: Partial<Record<DomainId, Question[]>> = {
+    gaming: [makeAiQuestion("gaming", 0), makeAiQuestion("gaming", 1), makeAiQuestion("gaming", 2)],
+  };
+  const picks = buildDailySet({
+    dateKey: "2026-10-20",
+    domains: ["gaming"],
+    pool,
+    count: 3,
+    allowedOrigins: ["seed", "ai"],
+  });
+  assert.equal(picks.length, 3);
+  assert.ok(
+    picks.every((p) => p.question.origin === "ai"),
+    "PK 应能取到 AI 题"
+  );
 });
 
 test("每题都来自所选领域", () => {

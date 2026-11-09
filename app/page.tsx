@@ -7,6 +7,7 @@ import {
   Flame,
   NotebookPen,
   Orbit,
+  Pencil,
   Sparkles,
   Swords,
   Target,
@@ -15,21 +16,32 @@ import {
 } from "lucide-react";
 
 import { buttonClass } from "@/components/ui/Button";
+import { ProfileSetup } from "@/components/domain/ProfileSetup";
 import { DOMAINS } from "@/content/domains";
-import { getProfile, getRankSnapshot, getStreak, isPersistent } from "@/lib/storage";
+import {
+  getProfile,
+  getRankSnapshot,
+  getStreak,
+  hasOnboarded,
+  isPersistent,
+  markOnboarded,
+  saveProfile,
+} from "@/lib/storage";
 import { dayKey } from "@/lib/engine/date";
 import type { RankSnapshot } from "@/lib/engine/rank";
+import type { DomainId } from "@/types";
 
 /** 首页：今日挑战入口 + 段位与战绩速览。 */
 export default function HomePage() {
   const [ready, setReady] = useState(false);
   const [name, setName] = useState("");
   const [emoji, setEmoji] = useState("🧠");
-  const [domains, setDomains] = useState<string[]>([]);
+  const [domains, setDomains] = useState<DomainId[]>([]);
   const [streak, setStreak] = useState(0);
   const [best, setBest] = useState(0);
   const [persistent, setPersistent] = useState(true);
   const [rank, setRank] = useState<RankSnapshot | null>(null);
+  const [setupMode, setSetupMode] = useState<"first-run" | "edit" | null>(null);
 
   useEffect(() => {
     const p = getProfile();
@@ -41,10 +53,25 @@ export default function HomePage() {
     setBest(s.best);
     setPersistent(isPersistent());
     setRank(getRankSnapshot());
+    // 只有「没选过领域且没走过引导」才展示首启卡；老用户不会被再拦一次。
+    setSetupMode(!hasOnboarded() && p.domains.length === 0 ? "first-run" : null);
     setReady(true);
   }, []);
 
   if (!ready) return null;
+
+  const handleSaveProfile = (profile: { name: string; domains: DomainId[] }) => {
+    const next = saveProfile(profile);
+    setName(next.name);
+    setDomains(next.domains);
+    markOnboarded();
+    setSetupMode(null);
+  };
+
+  const handleSkipSetup = () => {
+    markOnboarded();
+    setSetupMode(null);
+  };
 
   const dateLabel = dayKey();
   const domainNames = domains
@@ -55,12 +82,34 @@ export default function HomePage() {
   return (
     <div className="space-y-5">
       <header className="space-y-1">
-        <p className="text-sm text-dim">{dateLabel}</p>
+        <div className="flex items-center justify-between gap-3">
+          <p className="text-sm text-dim">{dateLabel}</p>
+          <button
+            type="button"
+            onClick={() => setSetupMode(setupMode === "edit" ? null : "edit")}
+            className="inline-flex min-h-[44px] shrink-0 items-center gap-1 rounded-md px-2 text-xs text-muted transition-colors hover:bg-surface-2 hover:text-fg"
+            aria-label="编辑资料"
+          >
+            <Pencil size={14} aria-hidden />
+            编辑
+          </button>
+        </div>
         <h1 className="text-2xl font-bold tracking-tight">
           {emoji} {name}，今天也来一局？
         </h1>
         <p className="text-sm text-muted">每天三域，各显所长。5 道题，3 分钟。</p>
       </header>
+
+      {setupMode && (
+        <ProfileSetup
+          mode={setupMode}
+          initialName={name}
+          initialDomains={domains}
+          onSave={handleSaveProfile}
+          onCancel={setupMode === "edit" ? () => setSetupMode(null) : undefined}
+          onSkip={setupMode === "first-run" ? handleSkipSetup : undefined}
+        />
+      )}
 
       {/* 今日挑战 */}
       <div className="panel space-y-4 p-5">
@@ -106,7 +155,7 @@ export default function HomePage() {
           开始今日挑战
         </Link>
 
-        {domains.length === 0 && (
+        {domains.length === 0 && setupMode !== "first-run" && (
           <Link
             href="/domains"
             className="flex min-h-[44px] items-center justify-center text-center text-xs text-accent"

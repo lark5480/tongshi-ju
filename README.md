@@ -32,7 +32,7 @@ npm install
 npm run dev
 ```
 
-打开 <http://localhost:3000> 就能玩了。首次进入会让你选 1–3 个「本命领域」，
+打开 <http://localhost:3000> 就能玩了。首次进入会让你设置昵称、选 1–3 个本命领域，
 或者直接点「随缘开局」让系统当天替你决定。
 
 **第 3 步 —— 每天回来**
@@ -51,6 +51,16 @@ npm run dev
 > 缺失时从 [cloudflared 官方文档](https://developers.cloudflare.com/cloudflared/) 下载后放回根目录。
 > 端口被占用时脚本会自动换一个空闲端口；局域网调试可用 `npm run dev:lan`。
 > 部署与隧道细节见 [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md)。
+
+### 容器运行
+
+```bash
+docker build -t tongshi-ju .
+docker run --rm -p 3000:3000 --env-file .env.local tongshi-ju
+curl http://localhost:3000/api/health
+```
+
+duel 的房间状态在进程内，**单副本运行**；细节见 [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) §6。
 
 ---
 
@@ -111,9 +121,12 @@ npm run dev
 ## 状态
 
 - 12 域全部上线；每日挑战、同题 PK、同步抢答 duel、错题复习、知识星图、战绩可用。
-- 四个亮点玩法与「星轨」视觉系统已落地；AI 出题管线只进待审池。
+- 四个亮点玩法与「星轨」视觉系统已落地。
+- AI 出题管线已闭环：生成 → 10 步校验 → 本地待审池 → `npm run ai:review` 人工审核 → `content/ai/` 入库。
+  AI 题只进 PK / 错题复习 / 第 5 题加练，**不进每日挑战 / duel**（每日题集不变量有单测）。
 - 单测、内容校验、构建与 Playwright 冒烟由 CI 守住，状态见顶部徽章。
-- 待做：待审池运营界面、题库深度；排行榜已裁定不做（[`docs/PRD.md`](docs/PRD.md) §11.1），2v2 待裁决。
+- AI 题池当前为空；用 `npm run ai:review -- gen` 生成、`approve` 审核入库后才会在 PK / 复习 / 加练中出现。
+- 待做：题库深度（多选地板）、待审池 Web 运营界面（可选）；排行榜已裁定不做（[`docs/PRD.md`](docs/PRD.md) §11.1），2v2 待裁决。
 
 ---
 

@@ -19,6 +19,7 @@ import { selectMemories } from "./core/memory";
 import { buildWeeklyTemplate, type WeeklyDigest } from "./core/weekly";
 import type { DecisionMemory, NpcContext, NpcDecision } from "./types";
 import { decideNpc, MASTERY_FULL_MARKS } from "./core/policy";
+import { NpcOutputError, sanitizeCommentary, sanitizeMemory } from "./sanitize";
 
 /** 一次生成的结果：正文是否为空 + 结束原因（供「思维链耗尽」判定重试）。 */
 interface NpcGeneration {
@@ -102,17 +103,18 @@ export async function narrate(params: {
     if (!generated.text) {
       throw new Error(generated.failureReason ?? "模型返回内容为空或不是可提取的文本");
     }
+    const commentary = sanitizeCommentary(generated.text);
     return {
       decision: decideNpc({
         context,
-        commentary: withPromiseMention(generated.text, context.promise),
+        commentary: withPromiseMention(commentary, context.promise),
         degraded: false,
         memories,
       }),
       degraded: false,
     };
   } catch (error) {
-    const reason = `模型调用失败：${error instanceof Error ? error.message : String(error)}`;
+    const reason = degradedReasonFor(error);
     return {
       decision: decideNpc({
         context,
@@ -135,7 +137,7 @@ function resolveMemories(context: NpcContext): DecisionMemory[] {
     episodes: context.episodes,
     domain: focus,
     now: context.now,
-  });
+  }).map((memory) => ({ ...memory, reason: sanitizeMemory(memory.reason) }));
 }
 
 /**
@@ -349,14 +351,25 @@ export async function narrateWeeklyReport(params: {
     if (!generated.text) {
       throw new Error(generated.failureReason ?? "模型返回内容为空或不是可提取的文本");
     }
-    return { text: generated.text, degraded: false };
+    return { text: sanitizeCommentary(generated.text, 400), degraded: false };
   } catch (error) {
     return {
       text: template,
       degraded: true,
-      degradedReason: `模型调用失败：${error instanceof Error ? error.message : String(error)}`,
+      degradedReason: degradedReasonFor(error),
     };
   }
+}
+
+/** 把清洗失败映射成玩家可读的降级原因（与模型调用失败区分）。 */
+function degradedReasonFor(error: unknown): string {
+  if (error instanceof NpcOutputError) {
+    if (error.code === "blocked") return "模型输出未通过内容安全检查（命中敏感词）";
+    if (error.code === "injection") return "模型输出包含疑似提示注入内容";
+    if (error.code === "too_long") return `模型输出超长（${error.message}）`;
+    if (error.code === "empty") return "模型返回内容为空或不是可提取的文本";
+  }
+  return `模型调用失败：${error instanceof Error ? error.message : String(error)}`;
 }
 
 /** 周报提示词：只给聚合事实，不让模型碰出题或计分。 */

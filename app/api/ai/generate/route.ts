@@ -2,16 +2,13 @@ import { ok, fail, readJson } from "@/lib/api/respond";
 import { rateLimitGuard } from "@/lib/rate-limit";
 import { RATE_LIMITS } from "@/lib/store";
 import { aiGenerateSchema } from "@/content/domains/schema";
-import { DOMAINS } from "@/content/domains";
 import { getProvider } from "@/lib/ai/provider";
-import { buildGeneratePrompt, buildVariantPrompt } from "@/lib/ai/prompt";
-import { validateAiBatch } from "@/lib/ai/validate";
-import { addToIndex, type DomainTokenIndex } from "@/lib/ai/dedupe";
-import { allFingerprints, domainBank } from "@/lib/content/server-bank";
-import { fingerprintOf, normalizeStem, tokenize } from "@/lib/content/fingerprint";
-import { nanoid } from "nanoid";
+import { generateBatch, GenerateInputError } from "@/lib/ai/generate";
+import { writePendingBatch } from "@/lib/ai/pending-io";
+import type { PendingBatch } from "@/lib/ai/pending";
 
 export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
 
 /**
  * POST /api/ai/generate —— AI 出题（管理入口）。
@@ -20,7 +17,13 @@ export const dynamic = "force-dynamic";
  *
  * - **未配置 provider 时直接返回 503**，主链路（每日挑战 / 对战）完全不受影响；
  * - 通过 10 步校验链的题目**只进待审池**，不直接进入正式题库；
- * - AI 题**永不参与每日挑战**（每日挑战必须可复现、可排行）。
+ * - AI 题**永不参与每日挑战 / duel**（见 `docs/CONTENT.md` §8 与 AGENTS.md §2.1）。
+ *
+ * ## 落盘
+ *
+ * 待审池写入 `.ai-pending/<batchId>.json`（本地目录，已 gitignore）。
+ * Serverless 等只读环境写盘失败时**不返回 500**：生成结果仍可用，
+ * 但响应里显式给出 `pendingPersisted: false` 与原因。
  *
  * ## 鉴权
  *
@@ -51,74 +54,56 @@ export async function POST(req: Request) {
     return fail(parsed.error.issues[0]?.message ?? "参数不合法", 400, "invalid_input");
   }
   const input = parsed.data;
-  const meta = DOMAINS.find((d) => d.id === input.domain);
-  if (!meta) return fail("未知领域", 400, "invalid_input");
 
-  // ---- prompt ----
-  const prompt = input.variantOf
-    ? buildVariantPrompt({
-        domain: input.domain,
-        domainName: meta.name,
-        topic: input.variantOf.questionId,
-        originalStem: input.variantOf.stem,
-        originalAnswer: input.variantOf.answer,
-        count: input.count,
-      })
-    : buildGeneratePrompt({
-        domain: input.domain,
-        domainName: meta.name,
-        topics: meta.topics,
-        topic: input.topic,
-        difficulty: input.difficulty,
-        count: input.count,
-      });
-
-  // ---- 调用 ----
-  let raw: unknown;
+  // ---- 生成 + 校验链 ----
+  let result: Awaited<ReturnType<typeof generateBatch>>;
   try {
-    raw = await provider.generate(prompt);
+    result = await generateBatch(input, provider);
   } catch (e) {
-    // 失败**不抛出**：由调用方降级到 seed 题库
+    if (e instanceof GenerateInputError) {
+      return fail(e.message, 400, "invalid_input");
+    }
     console.error("[ai] 生成失败：", e);
     return fail("AI 生成失败，已降级为题库题", 502, "ai_failed");
   }
 
-  // ---- 校验链 ----
-  const knownFingerprints = new Map<string, string>();
-  for (const q of domainBank(input.domain)) knownFingerprints.set(q.fingerprint, q.id);
-  for (const fp of allFingerprints()) {
-    if (!knownFingerprints.has(fp)) knownFingerprints.set(fp, fp);
-  }
-
-  const tokenIndex: DomainTokenIndex = new Map();
-  for (const q of domainBank(input.domain)) {
-    tokenIndex.set(q.domain, [
-      ...(tokenIndex.get(q.domain) ?? []),
-      { id: q.id, tokens: tokenize(normalizeStem(q.stem)) },
-    ]);
-  }
-
-  const batchId = `ai-${Date.now().toString(36)}-${nanoid(6)}`;
-  const result = validateAiBatch(raw, {
-    domain: input.domain,
-    knownFingerprints,
-    tokenIndex,
-    batchId,
-    variantOf: input.variantOf?.questionId,
-    makeId: (domain, stem) => {
-      const fp = fingerprintOf(stem);
-      return `${domain}-ai-${fp}`;
+  const batch: PendingBatch = {
+    version: 1,
+    batchId: result.batchId,
+    domain: result.domain,
+    createdAt: new Date().toISOString(),
+    provider: provider.name,
+    ...(process.env.AI_MODEL ? { model: process.env.AI_MODEL } : {}),
+    input: {
+      domain: input.domain,
+      ...(input.topic ? { topic: input.topic } : {}),
+      ...(input.difficulty ? { difficulty: input.difficulty } : {}),
+      count: input.count,
+      ...(input.variantOf ? { variantOf: input.variantOf.questionId } : {}),
     },
-  });
-
-  for (const q of result.accepted) addToIndex(tokenIndex, q);
-
-  return ok({
-    batchId,
-    domain: input.domain,
     accepted: result.accepted,
     rejected: result.rejected,
-    /** 待审池：这些题尚未进入正式题库，需人工抽检后转入。 */
     status: "pending",
+  };
+
+  let pendingPersisted = true;
+  let pendingError: string | null = null;
+  try {
+    await writePendingBatch(batch);
+  } catch (e) {
+    pendingPersisted = false;
+    pendingError = e instanceof Error ? e.message : String(e);
+    console.error("[ai] 待审池落盘失败：", pendingError);
+  }
+
+  return ok({
+    batchId: result.batchId,
+    domain: result.domain,
+    accepted: result.accepted,
+    rejected: result.rejected,
+    /** 待审池：这些题尚未进入正式题库，需人工审核后转入 content/ai/。 */
+    status: "pending",
+    pendingPersisted,
+    pendingError,
   });
 }

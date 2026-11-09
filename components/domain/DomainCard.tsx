@@ -64,6 +64,8 @@ export function DomainCard({ domain, selected, mastery, onToggle, disabled }: Do
     <button
       type="button"
       data-selected={selected}
+      aria-pressed={selected}
+      aria-label={`${selected ? "取消选择" : "选择"}${domain.name}领域`}
       disabled={disabled || notReady}
       onClick={() => !notReady && onToggle(domain.id)}
       // 域色光晕只在 hover / 选中时出现 —— 12 张卡同时发光会失控

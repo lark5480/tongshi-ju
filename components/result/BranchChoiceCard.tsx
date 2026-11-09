@@ -4,15 +4,9 @@ import { MessageCircle } from "lucide-react";
 
 import { Button } from "@/components/ui/Button";
 import { buildPracticeReceipt, type BranchOption } from "@/lib/npc";
+import { degradedLabel } from "@/lib/npc/labels";
 import type { NpcPromise } from "@/lib/npc/types";
 import type { BranchOptionId, DailyChoice, DailyPlan } from "@/types";
-
-/** 旧数据里的降级原因 → 玩家可读文案。 */
-function degradedLabel(reason?: string): string {
-  if (!reason) return "模型不可用，以下为确定性模板";
-  if (reason.includes("未配置")) return "未配置模型，以下为确定性模板";
-  return `模型调用失败，已降级为确定性模板：${reason}`;
-}
 
 /**
  * 结算后的“接下来怎么练”卡。

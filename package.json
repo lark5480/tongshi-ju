@@ -16,7 +16,8 @@
     "typecheck": "tsc --noEmit",
     "test": "node --import tsx --test __tests__/*.test.ts",
     "test:e2e": "playwright test",
-    "validate:content": "tsx scripts/validate-content.ts"
+    "validate:content": "tsx scripts/validate-content.ts",
+    "ai:review": "node --env-file-if-exists=.env.local --import tsx scripts/ai-review.ts"
   },
   "dependencies": {
     "lucide-react": "^0.400.0",

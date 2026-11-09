@@ -60,8 +60,30 @@ export const domainFileSchema = z.object({
   questions: z.array(questionSchema),
 });
 
+/**
+ * 已人工审核入库的 AI 题。
+ *
+ * 与 seed 题分开存放（`content/ai/<domain>.json`），id 带 `-ai-` 段，
+ * 运行时由加载器注入 `origin: "ai"` —— 磁盘上不允许出现 `origin`，
+ * 避免有人手写 origin 绕过来源分轨。
+ */
+export const aiQuestionFileSchema = questionSchema.extend({
+  id: z.string().regex(/^[a-z]+-ai-[0-9a-f]{8}$/, "AI 题 id 必须形如 gaming-ai-1a2b3c4d"),
+  batchId: z.string().min(1, "batchId 不能为空"),
+  reviewedAt: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "reviewedAt 必须是 YYYY-MM-DD"),
+  variantOf: z.string().min(1).optional(),
+});
+
+/** 磁盘上的一个 AI 题域文件。 */
+export const aiDomainFileSchema = z.object({
+  domain: z.enum(domainIds),
+  questions: z.array(aiQuestionFileSchema),
+});
+
 export type QuestionFileEntry = z.infer<typeof questionSchema>;
 export type DomainFile = z.infer<typeof domainFileSchema>;
+export type AiQuestionFileEntry = z.infer<typeof aiQuestionFileSchema>;
+export type AiDomainFile = z.infer<typeof aiDomainFileSchema>;
 
 /** AI 出题请求的入参。 */
 export const aiGenerateSchema = z.object({

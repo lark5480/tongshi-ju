@@ -6,6 +6,7 @@ node_modules
 # next.js
 .next/
 .next-dev/
+.next-dev-*/
 .next-e2e/
 .next-online/
 out/
@@ -59,3 +60,6 @@ cloudflared.exe
 
 # 本地临时运行目录（dev 日志等）
 /.tmp-run/
+
+# AI 待审池（本地运营产物，批准后才进 content/ai/）
+/.ai-pending/

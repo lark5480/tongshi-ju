@@ -28,12 +28,27 @@
 }
 ```
 
+已审核入库的 AI 题存 `content/ai/<id>.json`，结构与 seed 文件相同，但每题多三个字段：
+
+```json
+{
+  "id": "gaming-ai-1a2b3c4d",
+  "batchId": "ai-m3k2-7x",
+  "reviewedAt": "2026-11-10",
+  "variantOf": "gaming-0041"
+}
+```
+
+- `id` 由 schema 强制为 `<domain>-ai-<8 位十六进制>`；
+- `batchId` / `reviewedAt` 是人工审核证据，必填；
+- `variantOf` 可选，记录它改写自哪道原题。
+
 ### 1.1 磁盘上**不存**的三个字段
 
 | 字段 | 为什么不在磁盘上 |
 |---|---|
 | `domain` | 由文件名决定，加载时注入 |
-| `origin` | 磁盘上的一律是 `seed`；`ai` 题在待审池，加载时注入 |
+| `origin` | 磁盘上不存：seed 文件加载时注入 `seed`，`content/ai` 文件注入 `ai` |
 | `fingerprint` | 由题干归一化后**在加载时计算** |
 
 > 这样做的收益：**「改了题干忘了更新指纹」这类脏数据整类消失**。
@@ -64,6 +79,10 @@
 | 13 | 文件名与 `domain` 字段一致；每个已登记领域都要有对应文件；**未登记领域的 JSON 视为错误** | 错误 |
 | 14 | 命中**阻断级**内容安全词（`lib/content/sensitive.ts` 的 `SENSITIVE_BLOCK_PATTERNS`） | 错误 |
 | 15 | 命中**警示级**时政 / 领土 / 民族 / 宗教表述（同文件的 `SENSITIVE_REVIEW_PATTERNS`） | 警告（人工复核） |
+| 16 | `content/ai/` 必须有 12 个域文件；AI 题 id 形如 `<domain>-ai-<8 位十六进制>`，且带 `batchId` / `reviewedAt` | 错误 |
+| 17 | AI 题的 id / 指纹与 seed 题**跨目录全局唯一**；AI 题与同域 seed 题做近似查重 | 错误 / 警告 |
+
+> AI 题是补充，不是主库：不套用「每域 ≥40 题」与难度分布警告。
 
 ---
 
@@ -229,14 +248,57 @@
 
 ---
 
-## 8. AI 出题（可选）
+## 8. AI 题产线
 
-`POST /api/ai/generate` 是**内容补充工具**，不是每日挑战的题源。
+`POST /api/ai/generate` 与 `npm run ai:review gen` 都是**内容补充工具**，不是每日挑战的题源。
 
-- 生成的题过 **10 步校验链**（JSON → schema → domain/topic → 难度 → 答案命中选项 →
-  歧义句式 → 解析长度 → 指纹查重 → 近似查重 → 敏感词）；
-- 通过的题**只进待审池**，人工抽检后才转正式题库；
+### 8.1 流程
+
+1. **生成**：`lib/ai/generate.ts` 调模型，结果过 **10 步校验链**（JSON → schema → domain/topic →
+   难度 → 答案命中选项 → 歧义句式 → 解析长度 → 指纹查重 → 近似查重 → 敏感词）。
+2. **落盘**：通过校验的题写入 `.ai-pending/<batchId>.json`（本地目录，已 gitignore；
+   不存 Key / prompt）。
+3. **审核**：`npm run ai:review list` / `show <batchId>` 人工看题。
+4. **入库**：`npm run ai:review approve <batchId> --write` 重新查重后写入
+   `content/ai/<domain>.json`；默认 dry-run，只有 `--write` 才改文件。
+5. **CI**：`npm run validate:content` 把 seed 与 AI 一起校验（id / 指纹全局唯一、topic 白名单、
+   答案命中选项、敏感词、近似查重）。
+
+### 8.2 边界
+
+- AI 题**永不进每日挑战 / duel**；只进 PK / 错题复习 / 第 5 题加练。
+- 批准 AI 题**不得改变任何一天的每日题集**；`__tests__/engine.daily.test.ts` 有单测钉住。
+- 待审池只留在本地；批准后的题才进仓库。
 - 每日挑战题源边界见 [`../AGENTS.md`](../AGENTS.md) §2.1。
 
 > ⚠️ **批次内查重要查"可变副本"**：每接受一题就立刻把它的指纹与 token 索引登记进去。
 > 否则同一批次里的两道雷同题会双双通过。
+
+### 8.3 产线自检（不接模型也能跑完 approve → validate）
+
+不调用真实模型，手工造一个待审批次，验证 `list → show → approve → validate` 全链路：
+
+1. 在 `.ai-pending/manual-smoke-1.json` 写入单题批次（字段对齐 `pendingBatchSchema`，
+   `status: "pending"`，`accepted` 里放一题；`id` / `fingerprint` 是占位，
+   approve 时会按题干重算并生成 `<domain>-ai-<8位十六进制>`）。
+2. `npm run ai:review -- list` → 应看到该批次为 `pending`。
+3. `npm run ai:review -- show manual-smoke-1` → 打印题干 / 选项 / 答案。
+4. **守卫**：`node --import tsx scripts/ai-review.ts approve manual-smoke-1 --write --ids`
+   → 必须报错「--ids 后必须跟至少一个题目 id」，且 `content/ai` 未被修改。
+5. `node --import tsx scripts/ai-review.ts approve manual-smoke-1`（dry-run）
+   → 打印将批准的题与生成的稳定 id。
+6. `node --import tsx scripts/ai-review.ts approve manual-smoke-1 --write`
+   → 写入 `content/ai/<domain>.json`。
+7. `npm run validate:content` → 0 错误 0 警告。
+8. `node --import tsx --test __tests__/engine.daily.test.ts` → 来源过滤与
+   「批准 AI 题不改变当日题集」全绿。
+9. 收尾：把 `content/ai/<domain>.json` 还原为空题池、删除该待审批次，再跑一次
+   `npm test` 与 `npm run validate:content` 确认回到基线。
+
+> ⚠️ 带 `--xxx` 参数时直接用 `node ... scripts/ai-review.ts`：npm 12 会把脚本参数里的
+> `--write` / `--ids` 当成自己的 CLI flag 并报 `Unknown cli flag`。
+> 不带 flag 的子命令仍可用 `npm run ai:review -- list` / `show <batchId>`。
+> 自检题入库期间，`__tests__/content.loader.test.ts` 的「空 AI 题池」基线会按设计失败，
+> 还原后必须重新转绿。
+
+> 自检题**不得提交**：`content/ai/` 的试验题与 `.ai-pending/` 都只留在本地。

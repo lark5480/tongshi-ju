@@ -72,11 +72,12 @@ async function seedWeek(page: Page, options: { withSession: boolean }): Promise<
           topic: "主机与PC",
           difficulty: 1,
           correct: false,
-          at: Date.now() - 86400000,
+          // 用「今天」而不是「昨天」：周报按周一起算，周一跑用例时昨天属于上一周。
+          at: Date.now(),
           importance: 10,
           importanceSource: "rule",
           importanceDegraded: false,
-          lastAccessedAt: Date.now() - 86400000,
+          lastAccessedAt: Date.now(),
         },
         {
           userId: "通识玩家",
@@ -85,11 +86,11 @@ async function seedWeek(page: Page, options: { withSession: boolean }): Promise<
           topic: "手游",
           difficulty: 1,
           correct: false,
-          at: Date.now() - 2 * 86400000,
+          at: Date.now() - 1000,
           importance: 10,
           importanceSource: "rule",
           importanceDegraded: false,
-          lastAccessedAt: Date.now() - 2 * 86400000,
+          lastAccessedAt: Date.now() - 1000,
         },
       ])
     );
@@ -158,7 +159,7 @@ test("本周周报：模型降级时显式标注模板", async ({ page }) => {
 
   const card = page.locator(".panel", { hasText: "本周老师周报" }).first();
   await expect(card.getByText("模板回顾")).toBeVisible();
-  await expect(card.getByText(/模型调用失败，已降级为确定性模板/)).toBeVisible();
+  await expect(card.getByText(/模型调用失败，以下为确定性模板/)).toBeVisible();
   await expect(card.getByText("本周完成 1 次每日挑战，答对 3/4 题（75%）。")).toBeVisible();
 });
 

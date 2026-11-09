@@ -16,6 +16,7 @@ import {
 import { domainName } from "@/content/domains";
 import { getHistory, getProfile, getRankSnapshot } from "@/lib/storage";
 import { getWeeklyReport, type WeeklyReport } from "@/lib/npc/weekly";
+import { weeklyDegradedLabel } from "@/lib/npc/labels";
 import { SCORING_VERSION, scoringVersionLabel, scoringVersionOf } from "@/lib/engine/scoring";
 import type { RankSnapshot } from "@/lib/engine/rank";
 import type { HistoryEntry } from "@/types";
@@ -24,13 +25,6 @@ const CHART_W = 320;
 const CHART_H = 130;
 const PAD_TOP = 14;
 const PAD_BOTTOM = 10;
-
-/** 周报降级原因 → 玩家可读文案（与每日点评同一纪律：不可静默降级）。 */
-function weeklyDegradedLabel(reason?: string): string {
-  if (!reason) return "模型不可用，以下为确定性模板";
-  if (reason.includes("未配置")) return "未配置模型，以下为确定性模板";
-  return `模型调用失败，已降级为确定性模板：${reason}`;
-}
 
 /** 战绩：最近 30 场记录（每日挑战与对战）。 */
 export default function HistoryPage() {

@@ -34,7 +34,7 @@
  * **与输入顺序无关**。
  */
 
-import type { Difficulty, DomainId, Question, QuestionType } from "@/types";
+import type { Difficulty, DomainId, Question, QuestionOrigin, QuestionType } from "@/types";
 import { hashSeed, mulberry32, pickOne, shuffled } from "./prng";
 import { shuffleOptions } from "./options";
 import { daysBetween } from "./date";
@@ -120,6 +120,14 @@ export interface BuildDailyParams {
    */
   allowedTypes?: readonly QuestionType[];
   /**
+   * 只允许这些来源；缺省 `["seed"]`。
+   *
+   * 每日挑战与 duel 必须只取 seed —— AI 题不允许进入可排行/可对战的题集。
+   * PK 显式传 `["seed", "ai"]`：它本身就是「同一码同一份题」的本地玩法，
+   * 不产生红榜，也不存在跨端服务端题集。
+   */
+  allowedOrigins?: readonly QuestionOrigin[];
+  /**
    * 抽题调度：
    * - `legacy`（默认）：保留旧随机抽题。**duel 必须留在这里** —— 它用房间 seed +
    *   空 `dateKey`，没有「按日期推进游标」的语义，且 5 回合由 `TOTAL_ROUNDS` 截断；
@@ -138,6 +146,18 @@ function filterPoolByTypes(
   const out: Partial<Record<DomainId, Question[]>> = {};
   for (const domain of Object.keys(pool) as DomainId[]) {
     out[domain] = (pool[domain] ?? []).filter((q) => allowedTypes.includes(q.type));
+  }
+  return out;
+}
+
+/** 按来源过滤题池；不修改原池。 */
+function filterPoolByOrigins(
+  pool: Partial<Record<DomainId, Question[]>>,
+  allowedOrigins: readonly QuestionOrigin[]
+): Partial<Record<DomainId, Question[]>> {
+  const out: Partial<Record<DomainId, Question[]>> = {};
+  for (const domain of Object.keys(pool) as DomainId[]) {
+    out[domain] = (pool[domain] ?? []).filter((q) => allowedOrigins.includes(q.origin));
   }
   return out;
 }
@@ -260,9 +280,11 @@ function takeCycleQuestion(
  */
 export function buildDailySet(params: BuildDailyParams): DailyPick[] {
   const { dateKey } = params;
+  // 来源过滤先于题型过滤：每日/duel 默认只取 seed，AI 题不进入可排行题集。
+  const originPool = filterPoolByOrigins(params.pool, params.allowedOrigins ?? ["seed"]);
   const pool = params.allowedTypes
-    ? filterPoolByTypes(params.pool, params.allowedTypes)
-    : params.pool;
+    ? filterPoolByTypes(originPool, params.allowedTypes)
+    : originPool;
   const count = Math.max(1, params.count ?? DEFAULT_DAILY_COUNT);
 
   // 先规范序：领域是**集合**，与用户点选顺序无关
