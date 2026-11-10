@@ -12,8 +12,9 @@ npm test              # node --import tsx --test __tests__/*.test.ts —— 纯�
 npm run test:e2e      # Playwright 浏览器冒烟（自己起 dev，跑 e2e/ 下的用例）
 ```
 
-`test:e2e` 会用 `playwright.config.ts` 里的 `webServer` 在 **3100 端口**起一个 `next dev`，
-跑完自动关掉。**端口被占用时直接报错、不再复用已有服务**：复用残留的旧 dev server 会让用例
+`test:e2e` 会用 `playwright.config.ts` 里的 `webServer` 在 **3100 端口**起服务，跑完自动关掉：
+本地起 `next dev`（改代码即生效），CI 起生产构建（`next build` + `next start`，见 `ci.yml` 的 `Build for e2e`）。
+**端口被占用时直接报错、不再复用已有服务**：复用残留的旧 dev server 会让用例
 跑在旧构建上，表现为首轮 40s 看不到选项、换端口重跑又全过。清理占用进程，或用
 `E2E_PORT=3102 npm run test:e2e` 指定空闲端口即可。
 

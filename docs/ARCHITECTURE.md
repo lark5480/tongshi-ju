@@ -39,7 +39,8 @@
   └─ 抽题、答题、计分、结算
 ```
 
-**没有服务端参与，也没有对应 API** —— `app/api/` 下只有房间（duel）与 AI 出题两类路由。
+**没有服务端参与，也没有对应的结算 API** —— `app/api/` 下的路由是房间（duel）、AI 出题、
+NPC（点评 / 重要度 / 周报）与健康检查，均不参与每日抽题与计分。
 「同一份代码」靠的是 `lib/engine/*` 同时被客户端与服务端 import（duel 服务端抽题用的就是 `buildDailySet`）。
 `buildDailySet` 还会用「局种子 + 题目 id」派生独立 PRNG 打乱选项（`lib/engine/options.ts`），
 同一题 + 同一 seed 在客户端 / 服务端 / PK 双方得到同一顺序。
@@ -50,6 +51,13 @@
 - 同一天同领域组合 → 全网同一份题（天然可比、可分享）；
 - 客户端本地计时只用于**显示**。每日挑战没有排行榜、不做服务端结算，
   所以「改本地时间刷分」没有收益。**duel 才是服务端权威计时。**
+
+**4+1 分轨**：每日挑战呈现「4 题公共 + 1 题个人加练」。前 4 题由 `buildDailySet`
+（`cycle` 调度、默认只取 `seed` 来源）确定并计分，全网同题；第 5 题由 `lib/npc/core/practice.ts`
+按本人熟练度另选，**不计分、不计排名、可跳过**，无 NPC 事实时回落为公共第 5 题。
+结算常量与纯函数（`PUBLIC_DAILY_COUNT` / `settlePublicAnswers`）在 `lib/engine/scoring.ts`，
+口径版本 v1/v2 与同版本比较规则见 [`GAME-RULES.md`](GAME-RULES.md) §3.7。
+NPC 只读引擎产出的数据、只影响第 5 题（红线见 [`../AGENTS.md`](../AGENTS.md) §2.5）。
 
 ### 2.1 抽题调度：`legacy` 与 `cycle`
 

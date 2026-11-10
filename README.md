@@ -111,7 +111,9 @@ duel 的房间状态在进程内，**单副本运行**；细节见 [`docs/DEPLOY
 | [`docs/CONTENT.md`](docs/CONTENT.md) | 题库格式、写作原则、校验链、新增领域流程 |
 | [`docs/TESTING.md`](docs/TESTING.md) | 测试约定、e2e 覆盖、常见陷阱 |
 | [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) | 双轨部署手册与联机隧道 |
+| [`docs/NPC-ARCHITECTURE.md`](docs/NPC-ARCHITECTURE.md) | 老师 NPC：记忆模型、选题契约、降级红线 |
 | [`docs/design/ui-system.md`](docs/design/ui-system.md) | 「星轨」视觉系统：token、组件、动效、文案 |
+| [`docs/TEAM.md`](docs/TEAM.md) | 团队角色、流水线与交付规范 |
 | [`AGENTS.md`](AGENTS.md) | AI 协作红线、技术栈、命令与文档路由 |
 
 产品决策写在 PRD 对应章节；`docs/research/` 是带日期的一次性调研快照，只作时点证据。
@@ -125,7 +127,7 @@ duel 的房间状态在进程内，**单副本运行**；细节见 [`docs/DEPLOY
 - AI 出题管线已闭环：生成 → 10 步校验 → 本地待审池 → `npm run ai:review` 人工审核 → `content/ai/` 入库。
   AI 题只进 PK / 错题复习 / 第 5 题加练，**不进每日挑战 / duel**（每日题集不变量有单测）。
 - 单测、内容校验、构建与 Playwright 冒烟由 CI 守住，状态见顶部徽章。
-- AI 题池当前为空；用 `npm run ai:review -- gen` 生成、`approve` 审核入库后才会在 PK / 复习 / 加练中出现。
+- AI 题用 `npm run ai:review -- gen` 生成、`approve` 审核入库后才会在 PK / 复习 / 加练中出现；入库题量以 `npm run validate:content` 输出为准。
 - 待做：题库深度（多选地板）、待审池 Web 运营界面（可选）；排行榜已裁定不做（[`docs/PRD.md`](docs/PRD.md) §11.1），2v2 待裁决。
 
 ---

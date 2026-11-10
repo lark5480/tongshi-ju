@@ -1,7 +1,9 @@
 # NPC 引擎 · 架构与契约
 
 > **本文是 `lib/npc/` 的权威源**（冻结契约）。
-> 产品需求见 [`docs/PRD.md`](docs/PRD.md) §NPC 章节。
+> 产品需求见 [`PRD.md`](PRD.md) §NPC 章节。
+> 立项裁决见 playtest-agent 仓库 [`docs/decisions/01-NPC立项裁决清单.md`](https://github.com/lark5480/playtest-agent/blob/master/docs/decisions/01-NPC立项裁决清单.md)
+> （本文的「裁决 N」均指向该清单）。
 
 ---
 
@@ -219,7 +221,7 @@ questionOrder   = 领域内：错题优先 → 低熟练度知识点优先 → �
 | 触发 | 行为 |
 | --- | --- |
 | 无模型端点 | 模板点评 + `degraded: true` + 原因 |
-| 模型超时（15s） | 同上 |
+| 模型超时（默认 60s） | 同上 |
 | 模型抛错 | 同上 |
 | 模型返回非法内容 | 同上 |
 | 模型输出命中阻断级敏感词 | 模板 + `degradedReason: "模型输出未通过内容安全检查（命中敏感词）"` |
