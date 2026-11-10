@@ -2,7 +2,7 @@
 const nextConfig = {
   reactStrictMode: true,
   /**
-   * 构建产物目录 —— 三套互不重叠，**dev / build / e2e 绝不共用同一个目录**。
+   * 构建产物目录 —— 四套互不重叠，**dev / build / e2e / 联机绝不共用同一个目录**。
    *
    * | 场景 | 目录 | 谁在用 |
    * |---|---|---|

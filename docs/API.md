@@ -91,6 +91,7 @@
 | `POST` | `/api/npc/coach` | 老师 NPC 点评（模型不可用 → 200 + `degraded`） | 无（限流 20 次/分/IP） |
 | `POST` | `/api/npc/importance` | 单题事件的重要度打分（不可用 → 200 + `degraded`） | 无（限流 120 次/分/IP） |
 | `POST` | `/api/npc/weekly` | 本周周报（不可用 → 200 + 模板 + `degraded`） | 无（限流 6 次/分/IP） |
+| `GET` | `/api/health` | 健康检查（`ok` / `version` / `aiConfigured`，不泄露密钥） | 无 |
 
 ---
 

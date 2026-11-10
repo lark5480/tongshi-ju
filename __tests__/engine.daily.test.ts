@@ -123,6 +123,35 @@ test("AI 题入库不改变同一天的每日题集", () => {
   );
 });
 
+test("AI 题入库不改变同一天的每日题集（cycle 调度）", () => {
+  const base = makePool(DOMS, 40);
+  const before = buildDailySet({
+    dateKey: "2026-10-20",
+    domains: DOMS,
+    pool: base,
+    schedule: "cycle",
+  });
+  const withAi: Partial<Record<DomainId, Question[]>> = {
+    ...base,
+    gaming: [...(base.gaming ?? []), makeAiQuestion("gaming", 0), makeAiQuestion("gaming", 1)],
+  };
+  const after = buildDailySet({
+    dateKey: "2026-10-20",
+    domains: DOMS,
+    pool: withAi,
+    schedule: "cycle",
+  });
+  assert.deepEqual(
+    after.map((p) => p.question.id),
+    before.map((p) => p.question.id),
+    "批准 AI 题不得改变每日题集（cycle）"
+  );
+  assert.ok(
+    after.every((p) => p.question.origin === "seed"),
+    "cycle 调度的每日题集同样不应出现 AI 题"
+  );
+});
+
 test("PK 口径显式放开来源后可选到 AI 题", () => {
   const pool: Partial<Record<DomainId, Question[]>> = {
     gaming: [makeAiQuestion("gaming", 0), makeAiQuestion("gaming", 1), makeAiQuestion("gaming", 2)],
